@@ -16,7 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -121,7 +121,7 @@ fun BackgroundReviewScreen(items: List<Item>, vm: AppViewModel, onDone: () -> Un
         return
     }
 
-    Column(Modifier.fillMaxSize().background(Color.Black).systemBarsPadding().padding(12.dp)) {
+    Column(Modifier.fillMaxSize().background(Color.Black).safeDrawingPadding().padding(12.dp)) {
         Text("Clean up backgrounds?", color = Color.White, style = MaterialTheme.typography.titleLarge)
         Text(
             "Preview with a white background. Wrong part picked? Tap the item in the photo.",

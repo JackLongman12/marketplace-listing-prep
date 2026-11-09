@@ -137,6 +137,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { WritingService.stopRequests.collect { if (it > 0) stopWriting() } }
         viewModelScope.launch { UpdateState.error.collect { e -> if (e != null) { showError(e); UpdateState.error.value = null } } }
         announceUpdate()
+        // Nothing is mid-install at launch, so any downloaded update file is leftover: remove it.
+        viewModelScope.launch(Dispatchers.IO) { Updater.apkFile(ctx).parentFile?.deleteRecursively() }
         if (System.currentTimeMillis() - store.lastUpdateCheck > 30 * 60 * 1000L) checkForUpdate(manual = false)
         // Leftover from builds that had a "Share photos" button.
         viewModelScope.launch(Dispatchers.IO) {
@@ -735,7 +737,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     describeLock.withLock { describer.ensureLoaded(p) }
                     progress(label ?: "Writing description…", _state.value.progress)
                 }
-                return writeListing(p, listOfNotNull(analysis.cover), prompt)
+                val local = writeListing(p, listOfNotNull(analysis.cover), prompt) ?: return null
+                if (style.isBlank()) return local
+                // Small on-phone models often ignore the tone; a short text-only pass applies it.
+                progress("Applying your writing style…", _state.value.progress)
+                return writeListing(p, emptyList(), Describer.rewritePrompt(local.title, local.description, style))
+                    ?.copy(identified = local.identified) ?: local
             }
 
             var result = attempt()

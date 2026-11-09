@@ -170,6 +170,9 @@ class Describer(private val context: Context) : Closeable {
 
         fun prompt(item: Item, ocrText: String, style: String, place: String = ""): String = buildString {
             appendLine("You write Facebook Marketplace listings for used items. Look carefully at the photo(s) first.")
+            if (style.isNotBlank()) {
+                appendLine("WRITING STYLE (the seller's own instructions; follow them for tone, length and wording): ${style.trim().take(800)}")
+            }
             appendLine("Describe ONLY what you can actually see or what the facts below say. If you are not sure what the item is, use a plain general name (for example \"desk lamp\", \"backpack\").")
             appendLine()
             appendLine("FACTS")
@@ -184,7 +187,7 @@ class Describer(private val context: Context) : Closeable {
             }
             if (place.isNotBlank()) appendLine("Seller location: $place (use the spelling and units normal there)")
             appendLine()
-            appendLine("EXAMPLE of the format and tone (a different item):")
+            appendLine(if (style.isNotBlank()) "EXAMPLE of the format only (a different item; use the seller's WRITING STYLE, not this tone):" else "EXAMPLE of the format and tone (a different item):")
             appendLine("TITLE: IKEA Markus office chair, black mesh")
             appendLine("DESCRIPTION:")
             appendLine("Comfortable high-back office chair with a mesh back and adjustable height. Good for a home office or study.")
@@ -200,7 +203,7 @@ class Describer(private val context: Context) : Closeable {
             appendLine()
             appendLine("Rules: English only. No emojis, hashtags, prices, pickup or payment details. Never invent a brand, model, size or spec.")
             if (style.isNotBlank()) {
-                appendLine("Seller's style wishes (follow them, keep the format, never invent facts): ${style.trim().take(800)}")
+                appendLine("Remember the seller's WRITING STYLE: ${style.trim().take(800)}")
             }
         }
 

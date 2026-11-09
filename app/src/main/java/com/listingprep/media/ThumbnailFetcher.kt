@@ -36,7 +36,7 @@ class ThumbnailFetcher(private val uri: Uri, private val options: Options) : Fet
 
     private fun targetSize(): Size {
         fun px(d: Dimension) = (d as? Dimension.Pixels)?.px ?: 512
-        return Size(px(options.size.width).coerceIn(64, 1024), px(options.size.height).coerceIn(64, 1024))
+        return Size(px(options.size.width).coerceIn(64, 2048), px(options.size.height).coerceIn(64, 2048))
     }
 
     class Factory : Fetcher.Factory<Uri> {

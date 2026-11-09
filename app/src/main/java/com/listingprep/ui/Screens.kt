@@ -83,6 +83,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
@@ -529,6 +530,7 @@ private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () 
     val deleter = rememberItemDeleter(vm)
     var editBackground by remember { mutableStateOf<Int?>(null) }
     var confirmRefresh by remember { mutableStateOf(false) }
+    var viewing by remember { mutableStateOf<Int?>(null) }
     if (confirmRefresh) AlertDialog(
         onDismissRequest = { confirmRefresh = false },
         title = { Text("Refresh this item?") },
@@ -569,7 +571,8 @@ private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () 
         ) {
             StatusCards(state, vm)
 
-            Text("Photos — tap one for options. The first is the cover.", style = MaterialTheme.typography.labelLarge)
+            Text("Photos: tap to enlarge, long-press (or ⋮) for options. The first is the cover.", style = MaterialTheme.typography.labelLarge)
+            viewing?.let { start -> PhotoViewer(item.photos, start, onDismiss = { viewing = null }) }
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 itemsIndexed(item.photos, key = { _, p -> p.uri }) { i, photo ->
                     PhotoThumb(
@@ -581,6 +584,7 @@ private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () 
                         onCover = { vm.setCover(item.id, i) },
                         onMove = { target -> vm.movePhoto(item.id, i, target) },
                         onRemove = { vm.removePhoto(item.id, i) },
+                        onView = { viewing = i },
                         onRemoveBackground = { editBackground = i },
                         onRestore = { vm.setCutout(item.id, i, null) },
                     )
@@ -789,6 +793,7 @@ private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () 
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PhotoThumb(
     photo: Photo,
@@ -801,6 +806,7 @@ private fun PhotoThumb(
     onRemove: () -> Unit,
     onRemoveBackground: () -> Unit,
     onRestore: () -> Unit,
+    onView: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
     Box {
@@ -811,7 +817,17 @@ private fun PhotoThumb(
             modifier = Modifier
                 .size(120.dp)
                 .clip(RoundedCornerShape(10.dp))
-                .clickable(enabled = enabled) { menu = true },
+                .combinedClickable(onClick = onView, onLongClick = { if (enabled) menu = true }),
+        )
+        Text(
+            "⋮",
+            color = Color.White,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(4.dp)
+                .background(Color(0x88000000), RoundedCornerShape(10.dp))
+                .clickable(enabled = enabled) { menu = true }
+                .padding(horizontal = 8.dp, vertical = 2.dp),
         )
         if (index == 0) {
             Text(

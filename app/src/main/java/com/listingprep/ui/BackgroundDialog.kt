@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedButton
@@ -78,8 +78,8 @@ fun BackgroundDialog(photo: Photo, onSave: (File) -> Unit, onDismiss: () -> Unit
         }
     }
 
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Column(Modifier.fillMaxSize().background(Color.Black).systemBarsPadding().padding(12.dp)) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        Column(Modifier.fillMaxSize().background(Color.Black).safeDrawingPadding().padding(12.dp)) {
             Text(
                 failed ?: if (result == null) "Tap the item you're selling" else "Tap again to pick a different spot",
                 color = Color.White,
