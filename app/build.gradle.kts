@@ -87,7 +87,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
 
     // On-device ML: photo grouping, text reading, and the Gemma 3n language model.
-    implementation("com.google.mediapipe:tasks-vision:0.10.24")
-    implementation("com.google.mediapipe:tasks-genai:0.10.24")
+    implementation("com.google.mediapipe:tasks-vision:0.10.29")
+    implementation("com.google.mediapipe:tasks-genai:0.10.29")
     implementation("com.google.mlkit:text-recognition:16.0.1")
 }
