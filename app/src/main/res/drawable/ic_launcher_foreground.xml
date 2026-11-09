@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  A price tag (with its string hole) tilted 45°, and a four-point sparkle cut into it for
+  the on-device AI. Everything sits inside the 66dp adaptive-icon safe zone.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:rotation="-45"
+        android:scaleX="1.0"
+        android:scaleY="1.0">
+        <!-- soft shadow -->
+        <path
+            android:fillColor="#33000000"
+            android:pathData="M31,56.5 L42,43.5 Q43.5,42 45.5,42 L74,42 Q78,42 78,46 L78,67 Q78,71 74,71 L45.5,71 Q43.5,71 42,69.5 Z" />
+        <!-- tag body with string hole -->
+        <path
+            android:fillColor="#FFE3F6E7"
+            android:fillType="evenOdd"
+            android:pathData="M30,54 L41,41 Q42.5,39.5 44.5,39.5 L73,39.5 Q77,39.5 77,43.5 L77,64.5 Q77,68.5 73,68.5 L44.5,68.5 Q42.5,68.5 41,67 Z M44.5,54 m-3.6,0 a3.6,3.6 0 1,0 7.2,0 a3.6,3.6 0 1,0 -7.2,0 Z" />
+        <!-- sparkle -->
+        <path
+            android:fillColor="#FF24603F"
+            android:pathData="M63,44.5 Q64.1,52.9 72.5,54 Q64.1,55.1 63,63.5 Q61.9,55.1 53.5,54 Q61.9,52.9 63,44.5 Z" />
+    </group>
+</vector>

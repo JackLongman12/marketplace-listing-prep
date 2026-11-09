@@ -91,7 +91,7 @@ class ShareOverlayService : Service() {
             PendingIntent.FLAG_IMMUTABLE,
         )
         val notification = Notification.Builder(this, CHANNEL)
-            .setSmallIcon(android.R.drawable.ic_menu_share)
+            .setSmallIcon(com.listingprep.R.drawable.ic_stat_listing)
             .setContentTitle("Copy panel is on")
             .setContentText("Use the floating panel to copy each field into Facebook.")
             .setOngoing(true)
