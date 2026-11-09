@@ -305,12 +305,10 @@ private fun ItemListScreen(
                 ) {
                     Button(
                         onClick = onCamera,
-                        enabled = idle,
                         modifier = Modifier.weight(1f),
                     ) { Text("Take photos", maxLines = 1) }
                     TextButton(
                         onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                        enabled = idle,
                     ) { Text("From gallery", maxLines = 1) }
                 }
             }
@@ -1182,28 +1180,28 @@ private fun PriceKeyDialog(vm: AppViewModel, onDone: (saved: Boolean) -> Unit) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ToneDialog(onPick: (String) -> Unit, onDismiss: () -> Unit) {
-    var custom by remember { mutableStateOf("") }
+    var tone by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Rewrite in another tone") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Same facts, new wording. Undo brings the old text back.", style = MaterialTheme.typography.bodySmall)
+                Text("Pick a tone or describe one, then tap Rewrite. Same facts, new wording; Undo brings the old text back.", style = MaterialTheme.typography.bodySmall)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     STYLE_PRESETS.filter { it.second.isNotBlank() }.forEach { (label, text) ->
-                        FilterChip(selected = false, onClick = { onPick(text) }, label = { Text(label) })
+                        FilterChip(selected = tone == text, onClick = { tone = if (tone == text) "" else text }, label = { Text(label) })
                     }
                 }
                 OutlinedTextField(
-                    value = custom,
-                    onValueChange = { custom = it.take(300) },
-                    label = { Text("Or describe the tone") },
+                    value = tone,
+                    onValueChange = { tone = it.take(400) },
+                    label = { Text("Tone") },
                     placeholder = { Text("e.g. enthusiastic, mention it's barely used") },
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
         },
-        confirmButton = { TextButton(onClick = { onPick(custom) }, enabled = custom.isNotBlank()) { Text("Rewrite") } },
+        confirmButton = { TextButton(onClick = { onPick(tone) }, enabled = tone.isNotBlank()) { Text("Rewrite") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }

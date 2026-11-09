@@ -2,6 +2,8 @@
 
 Turn a pile of photos into ready-to-post Facebook Marketplace listings, entirely on your Android phone.
 
+![Listing Prep: shoot it, sort it, describe it, post it](assets/social-preview.png)
+
 ![Listing Prep: photos sorted into items, reviewing an item, and posting with the floating copy panel](assets/preview.png)
 
 ## What it does
