@@ -3,6 +3,12 @@ name: Build APK
 on:
   push:
     branches: [main]
+    # Docs and repo housekeeping don't change the app, so they don't make a new build.
+    paths-ignore:
+      - '**.md'
+      - '.github/dependabot.yml'
+      - '.github/workflows/dependency-hashes.yml'
+      - 'assets/**'
   workflow_dispatch:
 
 # Least privilege by default; only the build job may write (to publish the release).
@@ -87,8 +93,10 @@ jobs:
         run: |
           PREV=$(git tag --list 'build-*' --sort=-v:refname | head -1)
           RANGE=${PREV:+$PREV..}HEAD
+          CHANGES=$(git log "$RANGE" --no-merges --format=%h -- app | wc -l)
           {
             echo "## What's new"
+            if [ "$CHANGES" -eq 0 ]; then echo; echo "Maintenance build: nothing in the app changed."; fi
             echo
             git log "$RANGE" --no-merges --reverse --format='### %s%n%n%b' -- app README.md \
               | grep -vE '^(Co-Authored-By|Signed-off-by):'
