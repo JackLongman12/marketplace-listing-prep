@@ -28,7 +28,8 @@ class Store(context: Context) {
         footer = prefs.getString("footer", null) ?: Settings().footer,
         defaultCondition = prefs.getString("defaultCondition", null) ?: Settings().defaultCondition,
         writingStyle = prefs.getString("writingStyle", null) ?: "",
-        backgroundRemoval = prefs.getBoolean("backgroundRemoval", false),
+        onlineLookup = prefs.getBoolean("onlineLookup", true),
+        autoWrite = prefs.getBoolean("autoWrite", true),
     )
 
     fun saveSettings(s: Settings) {
@@ -36,7 +37,8 @@ class Store(context: Context) {
             .putString("footer", s.footer)
             .putString("defaultCondition", s.defaultCondition)
             .putString("writingStyle", s.writingStyle)
-            .putBoolean("backgroundRemoval", s.backgroundRemoval)
+            .putBoolean("onlineLookup", s.onlineLookup)
+            .putBoolean("autoWrite", s.autoWrite)
             .apply()
     }
 
@@ -64,6 +66,7 @@ class Store(context: Context) {
         put("checked", checked)
         put("exportedUris", JSONArray().apply { exportedUris.forEach { put(it) } })
         put("codes", JSONArray().apply { codes.forEach { put(it) } })
+        put("product", product)
         put("photos", JSONArray().apply {
             photos.forEach { p ->
                 put(JSONObject().apply {
@@ -92,6 +95,7 @@ class Store(context: Context) {
             createdAt = optLong("createdAt"),
             checked = optBoolean("checked", false),
             exportedUris = optJSONArray("exportedUris")?.let { a -> (0 until a.length()).map { a.getString(it) } }.orEmpty(),
+            product = optString("product"),
             codes = optJSONArray("codes")?.let { a -> (0 until a.length()).map { a.getString(it) } }.orEmpty(),
         )
     }

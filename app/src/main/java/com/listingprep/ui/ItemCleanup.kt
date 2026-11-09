@@ -29,7 +29,8 @@ fun rememberItemDeleter(vm: AppViewModel): (ids: List<String>) -> Unit {
 
     val systemDelete = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
         // Whether you allowed it or not, the items themselves go.
-        afterSystemDialog?.let(vm::deleteItems)
+        // Gallery originals can't come back, so this delete has no Undo.
+        afterSystemDialog?.let { vm.deleteItems(it, allowUndo = false) }
         afterSystemDialog = null
     }
 
@@ -43,7 +44,7 @@ fun rememberItemDeleter(vm: AppViewModel): (ids: List<String>) -> Unit {
                 Column {
                     Text(
                         "Removes the item${if (ids.size == 1) "" else "s"}, $photos photo${if (photos == 1) "" else "s"} " +
-                            "taken in the app, and the copies saved for Facebook. This can't be undone."
+                            "taken in the app, and the copies saved for Facebook."
                     )
                     if (originals.isNotEmpty()) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -69,5 +70,6 @@ fun rememberItemDeleter(vm: AppViewModel): (ids: List<String>) -> Unit {
         )
     }
 
-    return remember { { ids -> if (ids.isNotEmpty()) pending = ids } }
+    // Nothing in the gallery to ask about: delete straight away, with Undo.
+    return remember { { ids -> if (ids.isNotEmpty()) { if (vm.galleryOriginals(ids).isEmpty()) vm.deleteItems(ids) else pending = ids } } }
 }

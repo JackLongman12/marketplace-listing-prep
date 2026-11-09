@@ -1,6 +1,15 @@
 package com.listingprep.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.net.Uri
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.ui.platform.LocalContext
 import android.provider.MediaStore
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -83,6 +92,7 @@ import com.listingprep.data.Status
 
 private const val SETTINGS = "__settings__"
 private const val CAMERA = "__camera__"
+private const val REVIEW = "__review__"
 
 @Composable
 fun App(
@@ -92,7 +102,17 @@ fun App(
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     var screen by rememberSaveable { mutableStateOf<String?>(null) }
+    var reviewIds by rememberSaveable { mutableStateOf(listOf<String>()) }
     BackHandler(enabled = screen != null) { screen = null }
+    val context = LocalContext.current
+    // Background writing posts a "descriptions ready" notification; ask once.
+    val askNotify = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(state.undo?.stamp) {
+        val undo = state.undo ?: return@LaunchedEffect
+        val r = snackbar.showSnackbar(undo.message, actionLabel = "Undo", duration = SnackbarDuration.Short)
+        if (r == SnackbarResult.ActionPerformed) vm.undo() else vm.hideUndo()
+    }
 
     // "Done ✓" on the floating panel: mark posted and go back to the list for the next item.
     LaunchedEffect(postedId) {
@@ -102,15 +122,30 @@ fun App(
         onPostedHandled()
     }
 
+    Box(Modifier.fillMaxSize()) {
     when (val current = screen) {
         null -> ItemListScreen(state, vm, onOpen = { screen = it }, onSettings = { screen = SETTINGS }, onCamera = { screen = CAMERA })
-        CAMERA -> CameraScreen(onFinish = { groups -> vm.addCameraItems(groups); screen = null })
+        CAMERA -> CameraScreen(onFinish = { groups ->
+            val ids = vm.addCameraItems(groups)
+            if (state.settings.autoWrite &&
+                context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            ) askNotify.launch(Manifest.permission.POST_NOTIFICATIONS)
+            reviewIds = ids
+            screen = if (ids.isEmpty()) null else REVIEW
+        })
+        REVIEW -> BackgroundReviewScreen(
+            items = state.items.filter { it.id in reviewIds },
+            vm = vm,
+            onDone = { screen = null; reviewIds = emptyList(); vm.autoWrite() },
+        )
         SETTINGS -> SettingsScreen(state, vm, onBack = { screen = null })
         else -> {
             val item = state.items.find { it.id == current }
             if (item == null) LaunchedEffect(current) { screen = null }
             else ItemScreen(item, state, vm, onBack = { screen = null })
         }
+    }
+    SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 72.dp))
     }
 }
 
@@ -212,19 +247,19 @@ private fun ItemListScreen(
                             OutlinedButton(onClick = { vm.mergeAll(chosen); selected = emptySet() }, enabled = idle && chosen.size >= 2) {
                                 Text("Merge")
                             }
-                            OutlinedButton(onClick = { chosen.forEach(vm::markPosted); selected = emptySet() }, enabled = idle) {
+                            OutlinedButton(onClick = { vm.markPostedAll(chosen); selected = emptySet() }, enabled = idle) {
                                 Text("Posted")
                             }
                         }
                         Tab.POSTED -> {
-                            OutlinedButton(onClick = { chosen.forEach(vm::markSold); selected = emptySet() }, enabled = idle) {
+                            OutlinedButton(onClick = { vm.markSoldAll(chosen); selected = emptySet() }, enabled = idle) {
                                 Text("Sold")
                             }
-                            OutlinedButton(onClick = { chosen.forEach(vm::markActive); selected = emptySet() }, enabled = idle) {
+                            OutlinedButton(onClick = { vm.markActiveAll(chosen); selected = emptySet() }, enabled = idle) {
                                 Text("Not posted")
                             }
                         }
-                        Tab.SOLD -> OutlinedButton(onClick = { chosen.forEach(vm::markPosted); selected = emptySet() }, enabled = idle) {
+                        Tab.SOLD -> OutlinedButton(onClick = { vm.markPostedAll(chosen); selected = emptySet() }, enabled = idle) {
                             Text("Not sold")
                         }
                     }
@@ -483,7 +518,6 @@ private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () 
                         onCover = { vm.setCover(item.id, i) },
                         onMove = { target -> vm.movePhoto(item.id, i, target) },
                         onRemove = { vm.removePhoto(item.id, i) },
-                        backgroundRemoval = state.settings.backgroundRemoval,
                         onRemoveBackground = { editBackground = i },
                         onRestore = { vm.setCutout(item.id, i, null) },
                     )
@@ -509,6 +543,13 @@ private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () 
                 )
             } else {
                 item.codes.forEach { Text(it, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+            }
+            if (item.product.isNotBlank()) {
+                Text(
+                    "Found online: ${item.product}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             OutlinedButton(onClick = { vm.scanCodes(item.id) }, enabled = idle) {
                 Text(if (item.codes.isEmpty()) "Scan photos for codes" else "Scan again")
@@ -636,7 +677,6 @@ private fun PhotoThumb(
     onCover: () -> Unit,
     onMove: (MoveTarget) -> Unit,
     onRemove: () -> Unit,
-    backgroundRemoval: Boolean,
     onRemoveBackground: () -> Unit,
     onRestore: () -> Unit,
 ) {
@@ -668,7 +708,7 @@ private fun PhotoThumb(
             DropdownMenuItem(text = { Text("Move to a new item") }, onClick = { menu = false; onMove(MoveTarget.NEW) })
             if (hasPrevious) DropdownMenuItem(text = { Text("Move to previous item") }, onClick = { menu = false; onMove(MoveTarget.PREVIOUS) })
             if (hasNext) DropdownMenuItem(text = { Text("Move to next item") }, onClick = { menu = false; onMove(MoveTarget.NEXT) })
-            if (backgroundRemoval) DropdownMenuItem(
+            DropdownMenuItem(
                 text = { Text(if (photo.cutout == null) "Remove background" else "Redo background") },
                 onClick = { menu = false; onRemoveBackground() },
             )
@@ -738,23 +778,20 @@ private fun SettingsScreen(state: UiState, vm: AppViewModel, onBack: () -> Unit)
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            HorizontalDivider()
-            Text("Photos", style = MaterialTheme.typography.titleMedium)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Background removal", style = MaterialTheme.typography.bodyLarge)
-                    Text(
-                        "Adds \"Remove background\" to the photo menu: tap the item and the rest turns white. " +
-                            "Runs on the phone; the original is kept.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Switch(
-                    checked = state.settings.backgroundRemoval,
-                    onCheckedChange = { on -> vm.updateSettings { it.copy(backgroundRemoval = on) } },
-                )
-            }
+            SettingSwitch(
+                title = "Write in the background",
+                detail = "After you take photos, the AI writes the new descriptions on its own. Leave the app if you like; " +
+                    "a notification says when they're ready.",
+                checked = state.settings.autoWrite,
+                onChange = { on -> vm.updateSettings { it.copy(autoWrite = on) } },
+            )
+            SettingSwitch(
+                title = "Look up barcodes online",
+                detail = "Only when the AI can't tell what an item is. Sends just the barcode number (not photos) over HTTPS " +
+                    "to upcitemdb.com, Open Food Facts or Open Library (books).",
+                checked = state.settings.onlineLookup,
+                onChange = { on -> vm.updateSettings { it.copy(onlineLookup = on) } },
+            )
 
             HorizontalDivider()
             Text("Listing defaults", style = MaterialTheme.typography.titleMedium)
@@ -786,3 +823,15 @@ private val STYLE_PRESETS = listOf(
     "Casual" to "Write casually and warmly, like a friendly neighbour selling something.",
     "Professional" to "Write in a clear, professional tone like a small shop listing.",
 )
+
+@Composable
+private fun SettingSwitch(title: String, detail: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Spacer(Modifier.width(12.dp))
+        Switch(checked = checked, onCheckedChange = onChange)
+    }
+}

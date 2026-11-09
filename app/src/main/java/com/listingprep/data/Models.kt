@@ -35,6 +35,8 @@ data class Item(
     val exportedUris: List<String> = emptyList(),
     /** Barcodes / QR codes found in the photos, e.g. "EAN-13: 4006381333931" or "QR: https://…". */
     val codes: List<String> = emptyList(),
+    /** Product info from the online barcode lookup, cached so it's fetched once. */
+    val product: String = "",
 )
 
 /** Everything Facebook needs is filled in and a human has signed off. */
@@ -46,8 +48,10 @@ data class Settings(
     val defaultCondition: String = "Good",
     /** Your own instructions for how the AI writes every listing. */
     val writingStyle: String = "",
-    /** Shows "Remove background" on photos. Off by default. */
-    val backgroundRemoval: Boolean = false,
+    /** Look up retail barcodes online, only when the AI can't tell what the item is. */
+    val onlineLookup: Boolean = true,
+    /** Write descriptions automatically after taking photos. */
+    val autoWrite: Boolean = true,
 )
 
 /** Full description text as it should be pasted into Facebook. */

@@ -130,6 +130,11 @@ class Describer(private val context: Context) : Closeable {
                 appendLine("(A QR code may contain the product name, model or a product web link: use what it clearly says. Never guess a product from a barcode number alone.)")
                 appendLine()
             }
+            if (item.product.isNotBlank()) {
+                appendLine("Product info found online for the barcode (may be wrong or incomplete; what you see in the photos wins):")
+                appendLine(item.product)
+                appendLine()
+            }
             appendLine("Seller's condition rating: ${item.condition}")
             appendLine("Seller's notes: ${item.notes.ifBlank { "(none)" }}")
             appendLine()
@@ -137,6 +142,8 @@ class Describer(private val context: Context) : Closeable {
             appendLine("TITLE: <under 70 characters. Brand and model first if known, then the item type and one key detail.>")
             appendLine("DESCRIPTION:")
             appendLine("<2-3 sentences on what it is and what it's good for, then 2-5 short lines starting with \"- \" covering specs, size, what's included, and any visible wear or flaws.>")
+            appendLine()
+            appendLine("IDENTIFIED: <yes if you know the specific product (brand and model, or exact title) from the evidence above; no if you had to describe it generically>")
             appendLine()
             appendLine("Rules:")
             appendLine("- Only state a brand, model, or spec if you can see it in the photo, read it in the text above, or it is in the seller's notes. Otherwise describe the item generically.")
@@ -148,9 +155,13 @@ class Describer(private val context: Context) : Closeable {
             }
         }
 
-        /** Splits the model's answer into (title, description). */
-        fun parse(raw: String): Pair<String, String> {
-            val text = raw.replace("**", "").trim()
+        data class Listing(val title: String, val description: String, val identified: Boolean)
+
+        /** Splits the model's answer into title, description and whether it knew the product. */
+        fun parse(raw: String): Listing {
+            val idLine = Regex("""(?im)^\s*IDENTIFIED:\s*(\w+).*$""")
+            val identified = idLine.find(raw)?.groupValues?.get(1)?.lowercase()?.startsWith("y") ?: true
+            val text = raw.replace("**", "").replace(idLine, "").trim()
             val title = Regex("""TITLE:\s*(.+)""", RegexOption.IGNORE_CASE)
                 .find(text)?.groupValues?.get(1)?.trim().orEmpty()
             val dIdx = text.indexOf("DESCRIPTION:", ignoreCase = true)
@@ -159,7 +170,7 @@ class Describer(private val context: Context) : Closeable {
             } else {
                 text.lines().filterNot { it.trim().startsWith("TITLE:", ignoreCase = true) }.joinToString("\n").trim()
             }
-            return title.take(100) to description
+            return Listing(title.take(100), description, identified)
         }
     }
 }

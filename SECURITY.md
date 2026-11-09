@@ -14,6 +14,11 @@ Please report security issues privately through GitHub:
   (`huggingface.co`, `hf.co` and their subdomains), used only for the one-time model
   download. The token goes only to `huggingface.co`, to get a short-lived signed link. All other connections, including telemetry from bundled libraries, fail. Plain HTTP
   is disabled.
+- **Barcode lookup.** Only when the AI can't identify an item and the item has a valid
+  retail barcode (EAN/UPC/ISBN check digit verified). Only the number is sent, over HTTPS,
+  to `api.upcitemdb.com`, `world.openfoodfacts.org` or `openlibrary.org`; these are the only
+  extra hosts the network allowlist permits. Redirects to other hosts are refused, replies
+  are capped at 256 KB and treated as untrusted text. Off switch in Settings.
 - **Model download.** Done by the app itself from the signed link on Hugging Face's CDN
   (hf.co / huggingface.co hosts only, HTTPS only); the token is never sent to the CDN.
   Interrupted downloads resume with a freshly signed link. The file must match Hugging Face's published SHA-256 before it's loaded,

@@ -29,8 +29,12 @@ import com.listingprep.ml.Grouper
 import com.listingprep.ml.ModelFiles
 import com.listingprep.ml.Ocr
 import com.listingprep.ml.Codes
+import com.listingprep.ml.ProductLookup
 import com.listingprep.data.Photo
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import com.listingprep.ml.WritingService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -55,7 +59,11 @@ data class UiState(
     val offerDeleteImportSource: String? = null,
     /** Non-null while the model is downloading in the background. */
     val download: DownloadUi? = null,
+    /** "Item deleted · Undo" bar; [UndoUi.stamp] changes for every new action. */
+    val undo: UndoUi? = null,
 )
+
+data class UndoUi(val message: String, val stamp: Long = System.nanoTime())
 
 data class DownloadUi(val label: String, val progress: Float?)
 
@@ -92,6 +100,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             File(app.cacheDir, "share").deleteRecursively()
             // Half-finished download from build 15, which saved to the old folder.
             ModelFiles.legacyDir(app)?.listFiles()?.filter { it.name.endsWith(".download") }?.forEach { it.delete() }
+            // In-app photos no item refers to (left over if the app closed during an Undo window).
+            val used = store.loadItems().flatMap { it.photos }.flatMap { listOfNotNull(it.uri, it.cutout) }.toSet()
+            val cutoff = System.currentTimeMillis() - 10 * 60 * 1000L
+            cameraPhotoDir(app).listFiles()
+                ?.filter { Uri.fromFile(it).toString() !in used && it.lastModified() < cutoff }
+                ?.forEach { it.delete() }
         }
     }
 
@@ -105,10 +119,82 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun updateItem(id: String, transform: (Item) -> Item) =
         setItems { items -> items.map { if (it.id == id) transform(it) else it } }
 
-    fun markSold(id: String) = updateItem(id) { it.copy(status = Status.SOLD) }
+    // ---- undo -------------------------------------------------------------
+    //
+    // Destructive edits apply at once and show an Undo bar. File clean-up (deleting in-app
+    // photos, Facebook copies, photo grants) waits until the bar is gone, so Undo is complete.
 
-    fun markActive(id: String) = updateItem(id) {
+    private var undoBefore: List<Pair<Int, Item>> = emptyList()
+    private var pendingCleanup: (suspend () -> Unit)? = null
+    private var undoTimer: Job? = null
+
+    private fun undoable(message: String, ids: Collection<String>, cleanup: (suspend () -> Unit)? = null, change: () -> Unit) {
+        commitUndo()
+        undoBefore = _state.value.items.withIndex().filter { it.value.id in ids }.map { it.index to it.value }
+        change()
+        pendingCleanup = cleanup
+        _state.update { it.copy(undo = UndoUi(message)) }
+        undoTimer = viewModelScope.launch {
+            delay(6_000)
+            undoTimer = null
+            commitUndo()
+            _state.update { it.copy(undo = null) }
+        }
+    }
+
+    /** Makes the last action final: runs its clean-up now. */
+    private fun commitUndo() {
+        undoTimer?.cancel()
+        undoTimer = null
+        undoBefore = emptyList()
+        val cleanup = pendingCleanup ?: return
+        pendingCleanup = null
+        CoroutineScope(Dispatchers.IO).launch { cleanup() }
+    }
+
+    fun undo() {
+        undoTimer?.cancel()
+        undoTimer = null
+        pendingCleanup = null
+        val before = undoBefore
+        undoBefore = emptyList()
+        _state.update { it.copy(undo = null) }
+        if (before.isEmpty()) return
+        val ids = before.map { it.second.id }.toSet()
+        setItems { current ->
+            current.filterNot { it.id in ids }.toMutableList().apply {
+                before.sortedBy { it.first }.forEach { (i, item) -> add(i.coerceAtMost(size), item) }
+            }
+        }
+    }
+
+    fun hideUndo() = _state.update { it.copy(undo = null) }
+
+    // ---- status ---------------------------------------------------------------
+
+    private fun setStatus(ids: List<String>, message: String, cleanup: (suspend () -> Unit)? = null, transform: (Item) -> Item) {
+        if (ids.isEmpty()) return
+        undoable(message, ids, cleanup) { setItems { items -> items.map { if (it.id in ids) transform(it) else it } } }
+    }
+
+    private fun count(n: Int, one: String) = if (n == 1) one else "$n items"
+
+    fun markSold(id: String) = markSoldAll(listOf(id))
+    fun markSoldAll(ids: List<String>) =
+        setStatus(ids, "${count(ids.size, "Item")} marked sold") { it.copy(status = Status.SOLD) }
+
+    fun markActive(id: String) = markActiveAll(listOf(id))
+    fun markActiveAll(ids: List<String>) = setStatus(ids, "${count(ids.size, "Item")} moved back to To post") {
         it.copy(status = if (it.description.isBlank()) Status.DRAFT else Status.READY)
+    }
+
+    /** Marks posted and (after the Undo window) removes the copies saved to Pictures/ListingPrep. */
+    fun markPosted(id: String) = markPostedAll(listOf(id))
+    fun markPostedAll(ids: List<String>) {
+        val copies = _state.value.items.filter { it.id in ids }.flatMap { it.exportedUris }
+        setStatus(ids, "${count(ids.size, "Item")} marked posted", cleanup = { Exporter.deleteExported(ctx, copies) }) {
+            it.copy(status = Status.POSTED, exportedUris = emptyList())
+        }
     }
 
     /** Gallery originals of these items, as MediaStore links Android can delete (camera shots excluded). */
@@ -129,18 +215,26 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (uris.isEmpty()) null
         else runCatching { MediaStore.createDeleteRequest(ctx.contentResolver, uris).intentSender }.getOrNull()
 
-    fun deleteItems(ids: List<String>) = ids.forEach(::deleteItem)
-
-    fun deleteItem(id: String) {
-        val item = _state.value.items.find { it.id == id } ?: return
-        setItems { items -> items.filterNot { it.id == id } }
-        // After removal, so photos still used by other items keep their access.
-        val remaining = _state.value.items.flatMap { it.photos }.flatMap { it.files() }.toSet()
-        viewModelScope.launch(Dispatchers.IO) {
-            Exporter.deleteExported(ctx, item.exportedUris)
-            releasePhotoAccess(item.photos.flatMap { it.files() }.filterNot { it in remaining })
+    /** Deletes items; their photos and copies are cleaned up once Undo is no longer offered. */
+    fun deleteItems(ids: List<String>, allowUndo: Boolean = true) {
+        val gone = _state.value.items.filter { it.id in ids }
+        if (gone.isEmpty()) return
+        val cleanup: suspend () -> Unit = {
+            gone.forEach { Exporter.deleteExported(ctx, it.exportedUris) }
+            val used = _state.value.items.flatMap { it.photos }.flatMap { it.files() }.toSet()
+            releasePhotoAccess(gone.flatMap { it.photos }.flatMap { it.files() }.filterNot { it in used })
+        }
+        val change = { setItems { items -> items.filterNot { it.id in ids } } }
+        if (allowUndo) {
+            undoable(if (gone.size == 1) "Item deleted" else "${gone.size} items deleted", ids, cleanup, change)
+        } else {
+            commitUndo()
+            change()
+            CoroutineScope(Dispatchers.IO).launch { cleanup() }
         }
     }
+
+    fun deleteItem(id: String) = deleteItems(listOf(id))
 
     /**
      * Lets go of photos no item uses any more: in-app camera shots are deleted, and gallery
@@ -177,8 +271,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Photos from the in-app camera, already grouped by item (one group per "Next item"). */
-    fun addCameraItems(groups: List<List<File>>) {
-        if (groups.isEmpty()) return
+    fun addCameraItems(groups: List<List<File>>): List<String> {
+        if (groups.isEmpty()) return emptyList()
         val condition = _state.value.settings.defaultCondition
         val newItems = groups.map { files ->
             Item(
@@ -187,6 +281,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
         setItems { it + newItems }
+        return newItems.map { it.id }
+    }
+
+    /** After shooting: write the new items' descriptions in the background, if that's on. */
+    fun autoWrite() {
+        if (_state.value.settings.autoWrite && _state.value.modelPath != null) generateAll()
     }
 
     fun setCover(id: String, index: Int) = updateItem(id) { item ->
@@ -196,13 +296,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun removePhoto(id: String, index: Int) {
         val photo = _state.value.items.find { it.id == id }?.photos?.getOrNull(index) ?: return
-        setItems { items ->
-            items.mapNotNull { item ->
-                if (item.id != id) item
-                else item.copy(photos = item.photos.filterIndexed { i, _ -> i != index }).takeIf { it.photos.isNotEmpty() }
+        val cleanup: suspend () -> Unit = {
+            val used = _state.value.items.flatMap { it.photos }.flatMap { it.files() }.toSet()
+            releasePhotoAccess(photo.files().filterNot { it in used })
+        }
+        undoable("Photo removed", listOf(id), cleanup) {
+            setItems { items ->
+                items.mapNotNull { item ->
+                    if (item.id != id) item
+                    else item.copy(photos = item.photos.filterIndexed { i, _ -> i != index }).takeIf { it.photos.isNotEmpty() }
+                }
             }
         }
-        releaseUnused(photo.files())
     }
 
     fun movePhoto(id: String, index: Int, target: MoveTarget) = setItems { items ->
@@ -230,28 +335,27 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun mergeWithNext(id: String) {
         val items = _state.value.items
         val i = items.indexOfFirst { it.id == id }
-        items.getOrNull(i + 1)?.let { mergeWith(id, it.id) }
+        items.getOrNull(i + 1)?.let { mergeAll(listOf(id, it.id)) }
     }
 
-    /** Merges all [ids] into the first one. */
+    fun mergeWith(id: String, otherId: String) = mergeAll(listOf(id, otherId))
+
+    /** Merges all [ids] (photos and notes) into the first one. */
     fun mergeAll(ids: List<String>) {
-        val first = ids.firstOrNull() ?: return
-        ids.drop(1).forEach { mergeWith(first, it) }
-    }
-
-    /** Moves [otherId]'s photos and notes into [id] and removes [otherId]. */
-    fun mergeWith(id: String, otherId: String) = setItems { items ->
-        val i = items.indexOfFirst { it.id == id }
-        val j = items.indexOfFirst { it.id == otherId }
-        if (i < 0 || j < 0 || i == j) return@setItems items
-        items.toMutableList().apply {
-            val a = this[i]
-            val b = this[j]
-            this[i] = a.copy(
-                photos = a.photos + b.photos,
-                notes = listOf(a.notes, b.notes).filter { it.isNotBlank() }.joinToString("; "),
-            )
-            removeAt(j)
+        if (ids.size < 2) return
+        undoable("${ids.size} items merged", ids) {
+            setItems { items ->
+                val parts = ids.mapNotNull { id -> items.find { it.id == id } }
+                if (parts.size < 2) return@setItems items
+                val first = parts.first()
+                val merged = first.copy(
+                    photos = parts.flatMap { it.photos }.distinctBy { it.uri },
+                    notes = parts.map { it.notes }.filter { it.isNotBlank() }.joinToString("; "),
+                    codes = parts.flatMap { it.codes }.distinct(),
+                )
+                val drop = parts.drop(1).map { it.id }.toSet()
+                items.filterNot { it.id in drop }.map { if (it.id == first.id) merged else it }
+            }
         }
     }
 
@@ -319,9 +423,22 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val ids = _state.value.items
             .filter { it.description.isBlank() && it.isActive }
             .map { it.id }
-        ids.forEachIndexed { i, id ->
-            progress("Writing description ${i + 1} of ${ids.size}", i.toFloat() / ids.size)
-            generateOne(id)
+        if (ids.isEmpty()) return@work
+        // Keeps going if you leave the app; a notification says when it's done.
+        WritingService.start(ctx, "Writing description 1 of ${ids.size}…")
+        var done = 0
+        try {
+            ids.forEachIndexed { i, id ->
+                progress("Writing description ${i + 1} of ${ids.size}", i.toFloat() / ids.size)
+                WritingService.update(ctx, "Writing description ${i + 1} of ${ids.size}…")
+                generateOne(id)
+                done++
+            }
+        } finally {
+            WritingService.finish(
+                ctx,
+                if (done > 0) "$done description${if (done == 1) "" else "s"} ready. Check them before posting." else null,
+            )
         }
     }
 
@@ -332,7 +449,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(generatingId = id) }
         val label = _state.value.busy
         val cr = ctx.contentResolver
-        val (title, description) = withContext(Dispatchers.Default) {
+        val listing = withContext(Dispatchers.Default) {
             if (!describer.isLoaded(path)) {
                 progress("Loading AI model (first time takes a few seconds)…", null)
                 describer.ensureLoaded(path)
@@ -345,14 +462,28 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             val codes = scanCodesIn(uris)
             if (codes != item.codes) updateItem(id) { it.copy(codes = codes) }
             val llmImages = uris.take(Describer.MAX_IMAGES).mapNotNull { runCatching { MediaInfo.decode(cr, it, 768) }.getOrNull() }
-            val raw = describer.describe(llmImages, Describer.prompt(item.copy(codes = codes), ocrText, _state.value.settings.writingStyle))
+            val style = _state.value.settings.writingStyle
+            var known = item.copy(codes = codes)
+            var result = Describer.parse(describer.describe(llmImages, Describer.prompt(known, ocrText, style)))
+            // The AI couldn't tell what it is: look the barcode number up online (if allowed) and try once more.
+            val code = ProductLookup.retailCode(codes)
+            if (!result.identified && code != null && known.product.isBlank() && _state.value.settings.onlineLookup) {
+                progress("Looking up the barcode online…", _state.value.progress)
+                val product = withContext(Dispatchers.IO) { runCatching { ProductLookup.lookup(code) }.getOrNull() }
+                if (product != null) {
+                    updateItem(id) { it.copy(product = product) }
+                    known = known.copy(product = product)
+                    progress(label ?: "Writing description…", _state.value.progress)
+                    result = Describer.parse(describer.describe(llmImages, Describer.prompt(known, ocrText, style)))
+                }
+            }
             llmImages.forEach { it.recycle() }
-            Describer.parse(raw)
+            result
         }
         updateItem(id) {
             it.copy(
-                title = title.ifBlank { it.title },
-                description = description,
+                title = listing.title.ifBlank { it.title },
+                description = listing.description,
                 status = if (it.isActive) Status.READY else it.status,
             )
         }
@@ -502,13 +633,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---- leftovers: shared photo copies -------------------------------------
 
-    /** Marks posted and removes that item's copies from Pictures/ListingPrep. */
-    fun markPosted(id: String) {
-        val item = _state.value.items.find { it.id == id } ?: return
-        viewModelScope.launch(Dispatchers.IO) { Exporter.deleteExported(ctx, item.exportedUris) }
-        updateItem(id) { it.copy(status = Status.POSTED, exportedUris = emptyList()) }
-    }
-
     /**
      * Wipes everything the app has stored: items, shared photo copies, the token, the
      * model, caches. Your original photos are never touched.
@@ -598,6 +722,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     override fun onCleared() {
+        commitUndo()
         describer.close()
     }
 }

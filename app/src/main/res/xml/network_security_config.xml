@@ -5,6 +5,8 @@
   usage stats to Google). The only exceptions are Hugging Face hosts, used solely for the
   one-time model download: huggingface.co (your token is sent only here, to get a signed
   link) and its CDN hosts under hf.co / huggingface.co (no token is sent there).
+  Barcode lookup (only when the AI can't identify an item, can be turned off in Settings):
+  api.upcitemdb.com, world.openfoodfacts.org and openlibrary.org receive the barcode number only.
   Plain HTTP is disabled everywhere.
 -->
 <network-security-config>
@@ -14,6 +16,14 @@
     <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="true">huggingface.co</domain>
         <domain includeSubdomains="true">hf.co</domain>
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </domain-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="false">api.upcitemdb.com</domain>
+        <domain includeSubdomains="false">world.openfoodfacts.org</domain>
+        <domain includeSubdomains="false">openlibrary.org</domain>
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>
