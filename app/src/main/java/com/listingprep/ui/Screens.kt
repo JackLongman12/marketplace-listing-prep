@@ -228,14 +228,26 @@ private fun ItemListScreen(state: UiState, vm: AppViewModel, onOpen: (String) ->
             item { StatusCards(state, vm) }
             if (state.modelPath == null) {
                 item {
+                    val download = state.download
                     Card(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(12.dp)) {
-                            Text("No AI model yet", style = MaterialTheme.typography.titleSmall)
-                            Text(
-                                "Photo grouping works now. To write descriptions, add the Gemma model in Settings.",
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                            TextButton(onClick = onSettings) { Text("Set up model") }
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            if (download != null) {
+                                Text(download.label, style = MaterialTheme.typography.bodyMedium)
+                                val p = download.progress
+                                if (p != null) LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth())
+                                else LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                            } else {
+                                Text("No AI model yet", style = MaterialTheme.typography.titleSmall)
+                                Text(
+                                    "Photo grouping works now. Descriptions need the free 4.4 GB Gemma model.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                                if (state.hasHfToken) {
+                                    Button(onClick = { vm.downloadModel() }, enabled = idle) { Text("Download AI model") }
+                                } else {
+                                    TextButton(onClick = onSettings) { Text("Set up model download") }
+                                }
+                            }
                         }
                     }
                 }
@@ -607,27 +619,7 @@ private fun SettingsScreen(state: UiState, vm: AppViewModel, onBack: () -> Unit)
         ) {
             StatusCards(state, vm)
 
-            Text("AI model", style = MaterialTheme.typography.titleMedium)
-            val path = state.modelPath
-            if (path != null) {
-                val f = File(path)
-                Text("Ready: ${f.name} (${"%.1f".format(f.length() / 1e9)} GB)")
-            } else {
-                Text("No model yet.")
-            }
-            Text(
-                "Descriptions are written by Gemma 3n running on your phone. To add it:\n" +
-                    "1. On your phone, open huggingface.co/google/gemma-3n-E4B-it-litert-preview, " +
-                    "sign in and accept Google's Gemma license.\n" +
-                    "2. Download gemma-3n-E4B-it-int4.task (about 4.4 GB).\n" +
-                    "3. Tap Import model file and pick it from Downloads. You can delete the download afterwards.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { modelPicker.launch(arrayOf("*/*")) }, enabled = idle) { Text("Import model file") }
-                OutlinedButton(onClick = vm::rescanModel, enabled = idle) { Text("Rescan") }
-            }
+            ModelSection(state, vm, onImportFile = { modelPicker.launch(arrayOf("*/*")) })
 
             HorizontalDivider()
             Text("Listing defaults", style = MaterialTheme.typography.titleMedium)

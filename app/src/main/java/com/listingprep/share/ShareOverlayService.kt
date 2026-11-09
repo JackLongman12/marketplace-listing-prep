@@ -27,6 +27,14 @@ import android.widget.TextView
 import com.listingprep.MainActivity
 
 /**
+ * Random per-process secret. MainActivity is exported (it's the launcher), so it only
+ * accepts a "posted" result that carries this value, which other apps can't know.
+ */
+object PanelSession {
+    val nonce: String = java.util.UUID.randomUUID().toString()
+}
+
+/**
  * A small draggable panel that floats over Facebook while you fill in a listing.
  * Each button copies one field to the clipboard; "Done" returns to Listing Prep and
  * marks the item as posted.
@@ -186,6 +194,7 @@ class ShareOverlayService : Service() {
         startActivity(
             Intent(this, MainActivity::class.java)
                 .putExtra(MainActivity.EXTRA_POSTED_ID, id)
+                .putExtra(MainActivity.EXTRA_POSTED_NONCE, PanelSession.nonce)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         )
         stopSelf()

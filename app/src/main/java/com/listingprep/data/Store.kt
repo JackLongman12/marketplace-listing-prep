@@ -36,6 +36,19 @@ class Store(context: Context) {
             .apply()
     }
 
+    /** Stored encrypted with a Keystore key (see [TokenVault]). */
+    var hfToken: String?
+        get() = prefs.getString("hfTokenEnc", null)?.let(TokenVault::decrypt)
+        set(v) {
+            prefs.edit().apply {
+                if (v.isNullOrBlank()) remove("hfTokenEnc") else putString("hfTokenEnc", TokenVault.encrypt(v))
+            }.apply()
+        }
+
+    var modelDownloadId: Long
+        get() = prefs.getLong("modelDownloadId", -1L)
+        set(v) { prefs.edit().putLong("modelDownloadId", v).apply() }
+
     private fun Item.toJson() = JSONObject().apply {
         put("id", id)
         put("title", title)

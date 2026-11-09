@@ -13,6 +13,7 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalContext
+import com.listingprep.share.PanelSession
 import com.listingprep.ui.App
 import kotlinx.coroutines.flow.MutableStateFlow
 
@@ -23,7 +24,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        postedId.value = intent?.getStringExtra(EXTRA_POSTED_ID)
+        postedId.value = intent?.let(::trustedPostedId)
         setContent {
             val context = LocalContext.current
             val colors = if (isSystemInDarkTheme()) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
@@ -38,10 +39,17 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        intent.getStringExtra(EXTRA_POSTED_ID)?.let { postedId.value = it }
+        trustedPostedId(intent)?.let { postedId.value = it }
+    }
+
+    /** Ignores "mark as posted" requests that didn't come from our own copy panel. */
+    private fun trustedPostedId(intent: Intent): String? {
+        val id = intent.getStringExtra(EXTRA_POSTED_ID) ?: return null
+        return id.takeIf { intent.getStringExtra(EXTRA_POSTED_NONCE) == PanelSession.nonce }
     }
 
     companion object {
         const val EXTRA_POSTED_ID = "posted_id"
+        const val EXTRA_POSTED_NONCE = "posted_nonce"
     }
 }

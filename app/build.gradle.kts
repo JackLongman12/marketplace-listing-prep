@@ -1,4 +1,5 @@
 import java.net.URI
+import java.security.MessageDigest
 
 plugins {
     id("com.android.application")
@@ -59,7 +60,11 @@ android {
 
 // Small (~4 MB) on-device image embedding model used to group photos by item.
 // Fetched once from Google's MediaPipe model bucket and bundled into the app.
+// Pinned SHA-256 so a tampered or swapped file fails the build instead of shipping.
 val embedderModel = file("src/main/assets/mobilenet_v3_small.tflite")
+val embedderSha256 = "bbbb4c51a55a53905af1daec995ca1aae355046f8839bb8c9f5ce9271394bc40"
+fun sha256Of(f: File): String =
+    MessageDigest.getInstance("SHA-256").digest(f.readBytes()).joinToString("") { "%02x".format(it) }
 val downloadEmbedderModel by tasks.registering {
     outputs.file(embedderModel)
     doLast {
@@ -69,6 +74,11 @@ val downloadEmbedderModel by tasks.registering {
             URI(url).toURL().openStream().use { input ->
                 embedderModel.outputStream().use { input.copyTo(it) }
             }
+        }
+        val actual = sha256Of(embedderModel)
+        if (actual != embedderSha256) {
+            embedderModel.delete()
+            throw GradleException("mobilenet_v3_small.tflite checksum mismatch: $actual")
         }
     }
 }

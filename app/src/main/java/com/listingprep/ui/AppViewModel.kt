@@ -1,6 +1,10 @@
 package com.listingprep.ui
 
 import android.app.Application
+import android.app.DownloadManager
+import com.listingprep.ml.ModelDownloader
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -38,7 +42,12 @@ data class UiState(
     val progress: Float? = null,
     val generatingId: String? = null,
     val error: String? = null,
+    val hasHfToken: Boolean = false,
+    /** Non-null while the model is downloading in the background. */
+    val download: DownloadUi? = null,
 )
+
+data class DownloadUi(val label: String, val progress: Float?)
 
 enum class MoveTarget { PREVIOUS, NEXT, NEW }
 
@@ -54,9 +63,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             items = store.loadItems(),
             settings = store.loadSettings(),
             modelPath = ModelFiles.find(app)?.absolutePath,
+            hasHfToken = !store.hfToken.isNullOrBlank(),
         )
     )
     val state = _state.asStateFlow()
+
+    private var downloadWatcher: Job? = null
+
+    init {
+        // Pick up a download that was running (or finished) while the app was closed.
+        if (store.modelDownloadId >= 0) watchDownload(store.modelDownloadId)
+    }
 
     // ---- item edits -------------------------------------------------------
 
@@ -265,11 +282,112 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 }
             }
+            // Only the official file is loaded into the native model runtime.
+            progress("Verifying model file (checksum)…", null)
+            if (!ModelDownloader.isOfficialModel(part)) {
+                part.delete()
+                throw IllegalArgumentException(
+                    "That file isn't the official ${ModelDownloader.FILE_NAME} (checksum mismatch), so it wasn't installed."
+                )
+            }
             describer.close()
             dir.listFiles()?.filter { it.name.endsWith(".task") }?.forEach { it.delete() }
-            part.renameTo(File(dir, name))
+            part.renameTo(File(dir, ModelDownloader.FILE_NAME))
         }
         rescanModel()
+    }
+
+    // ---- one-tap model download -------------------------------------------
+
+    fun saveHfToken(token: String) {
+        store.hfToken = token.trim().ifBlank { null }
+        _state.update { it.copy(hasHfToken = !store.hfToken.isNullOrBlank()) }
+    }
+
+    fun downloadModel(wifiOnly: Boolean = true) {
+        val token = store.hfToken
+        if (token.isNullOrBlank()) {
+            showError("Add your Hugging Face token first.")
+            return
+        }
+        if (ModelDownloader.freeBytes(ctx) < ModelDownloader.SIZE_BYTES + 300_000_000L) {
+            showError("Not enough free space: the model needs about 4.7 GB.")
+            return
+        }
+        if (store.modelDownloadId >= 0) ModelDownloader.cancel(ctx, store.modelDownloadId)
+        downloadWatcher?.cancel()
+        downloadWatcher = viewModelScope.launch {
+            _state.update { it.copy(download = DownloadUi("Contacting Hugging Face…", null)) }
+            val id = try {
+                withContext(Dispatchers.IO) { ModelDownloader.start(ctx, token, wifiOnly) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: ModelDownloader.Refused) {
+                _state.update { it.copy(download = null, error = ModelDownloader.refusedMessage(e.code)) }
+                return@launch
+            } catch (e: Exception) {
+                _state.update { it.copy(download = null, error = "Couldn't start the download: ${e.message}") }
+                return@launch
+            }
+            store.modelDownloadId = id
+            watchDownload(id)
+        }
+    }
+
+    fun cancelDownload() {
+        val id = store.modelDownloadId
+        if (id >= 0) ModelDownloader.cancel(ctx, id)
+        store.modelDownloadId = -1
+        downloadWatcher?.cancel()
+        _state.update { it.copy(download = null) }
+    }
+
+    private fun watchDownload(id: Long) {
+        downloadWatcher?.cancel()
+        downloadWatcher = viewModelScope.launch {
+            _state.update { it.copy(download = DownloadUi("Starting download…", null)) }
+            while (true) {
+                val p = withContext(Dispatchers.IO) { ModelDownloader.query(ctx, id) }
+                when (p?.status) {
+                    null -> {
+                        store.modelDownloadId = -1
+                        _state.update { it.copy(download = null) }
+                        return@launch
+                    }
+                    DownloadManager.STATUS_SUCCESSFUL -> {
+                        _state.update { it.copy(download = DownloadUi("Verifying download (checksum)…", null)) }
+                        val result = withContext(Dispatchers.IO) { ModelDownloader.finish(ctx) }
+                        store.modelDownloadId = -1
+                        _state.update { it.copy(download = null) }
+                        when (result) {
+                            ModelDownloader.Finish.OK -> rescanModel()
+                            ModelDownloader.Finish.INCOMPLETE ->
+                                showError("The download finished but the file is incomplete. Tap Download again.")
+                            ModelDownloader.Finish.BAD_CHECKSUM ->
+                                showError("The downloaded file didn't match the official checksum and was deleted. Tap Download again.")
+                        }
+                        return@launch
+                    }
+                    DownloadManager.STATUS_FAILED -> {
+                        ModelDownloader.cancel(ctx, id)
+                        store.modelDownloadId = -1
+                        _state.update { it.copy(download = null, error = ModelDownloader.failureMessage(p.reason)) }
+                        return@launch
+                    }
+                    else -> {
+                        val total = if (p.total > 0) p.total else ModelDownloader.SIZE_BYTES
+                        val gb = "%.1f / %.1f GB".format(p.downloaded / 1e9, total / 1e9)
+                        val label = if (p.status == DownloadManager.STATUS_PAUSED) {
+                            "${ModelDownloader.pausedMessage(p.reason)} ($gb)"
+                        } else {
+                            "Downloading AI model… $gb"
+                        }
+                        _state.update { it.copy(download = DownloadUi(label, p.downloaded.toFloat() / total)) }
+                    }
+                }
+                delay(1500)
+            }
+        }
     }
 
     override fun onCleared() {
