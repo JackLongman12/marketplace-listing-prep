@@ -1,3 +1,5 @@
+import java.net.URI
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -61,7 +63,7 @@ val downloadEmbedderModel by tasks.registering {
         if (!embedderModel.exists()) {
             embedderModel.parentFile.mkdirs()
             val url = "https://storage.googleapis.com/mediapipe-models/image_embedder/mobilenet_v3_small/float32/1/mobilenet_v3_small.tflite"
-            java.net.URI(url).toURL().openStream().use { input ->
+            URI(url).toURL().openStream().use { input ->
                 embedderModel.outputStream().use { input.copyTo(it) }
             }
         }
