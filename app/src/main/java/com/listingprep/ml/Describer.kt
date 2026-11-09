@@ -176,7 +176,10 @@ class Describer(private val context: Context) : Closeable {
             appendLine("Describe ONLY what you can actually see or what the facts below say. If you are not sure what the item is, use a plain general name (for example \"desk lamp\", \"backpack\").")
             appendLine()
             appendLine("FACTS")
-            if (item.identity.isNotBlank()) appendLine("WHAT THE ITEM IS (from the seller, this is correct; name it exactly like this): ${item.identity.trim().take(200)}")
+            if (item.identity.isNotBlank()) appendLine(
+                "WHAT THE ITEM IS (typed by the seller; it is the right product but may be abbreviated or misspelled, " +
+                    "e.g. \"bose qc45\" = Bose QuietComfort 45; use the correct full product name): ${item.identity.trim().take(200)}"
+            )
             appendLine("Condition (from the seller): ${item.condition}")
             if (item.notes.isNotBlank()) appendLine("Seller's notes (true): ${item.notes.trim().take(600)}")
             if (item.product.isNotBlank()) appendLine("Product facts found online (probably right; prefer what you see in the photo if they disagree): ${item.product}")

@@ -60,6 +60,8 @@ data class Settings(
     val autoWrite: Boolean = true,
     /** Opt-in: write descriptions with Google Gemini (photos are sent to Google) instead of on the phone. */
     val cloudWriting: Boolean = false,
+    /** Use the phone's built-in Gemini Nano when the phone has it (before the 4.4 GB model). */
+    val useNano: Boolean = true,
     /** Which cloud AI writes ("gemini", "github", "openrouter", "groq", "mistral"). */
     val writingProvider: String = "gemini",
     /** Model name at that provider; blank = the provider's default. */

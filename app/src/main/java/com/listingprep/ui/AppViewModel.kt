@@ -35,6 +35,7 @@ import com.listingprep.ml.Codes
 import com.listingprep.ml.ProductLookup
 import com.listingprep.ml.PriceLookup
 import com.listingprep.ml.Gemini
+import com.listingprep.ml.Nano
 import com.listingprep.ml.OpenAiCompatible
 import com.listingprep.ml.Provider
 import com.listingprep.data.Photo
@@ -87,13 +88,16 @@ data class UiState(
     val hasPriceKey: Boolean = false,
     /** Cloud providers with a saved key. */
     val providerKeys: Set<String> = emptySet(),
+    /** The phone's built-in Gemini Nano: READY, DOWNLOADABLE, DOWNLOADING or UNAVAILABLE (null = not checked yet). */
+    val nano: Nano.State? = null,
     /** Result of "Find second-hand price" for one item. */
     val priceHint: PriceHint? = null,
     /** Shown once after the app updated itself: the new build and what changed. */
     val justUpdated: UpdateUi? = null,
 ) {
     /** Descriptions can be written: the on-phone model is there, or Google writing is on with a key. */
-    val canWrite: Boolean get() = modelPath != null || (settings.cloudWriting && settings.writingProvider in providerKeys)
+    val canWrite: Boolean get() = modelPath != null || nanoReady || (settings.cloudWriting && settings.writingProvider in providerKeys)
+    val nanoReady: Boolean get() = settings.useNano && nano == Nano.State.READY
 }
 
 data class PriceHint(val itemId: String, val text: String, val value: String?, val sources: List<String> = emptyList())
@@ -157,6 +161,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { WritingService.stopRequests.collect { if (it > 0) stopWriting() } }
         viewModelScope.launch { UpdateState.error.collect { e -> if (e != null) { showError(e); UpdateState.error.value = null } } }
         announceUpdate()
+        refreshNano(download = true)
         // Nothing is mid-install at launch, so any downloaded update file is leftover: remove it.
         viewModelScope.launch(Dispatchers.IO) { Updater.apkFile(ctx).parentFile?.deleteRecursively() }
         if (System.currentTimeMillis() - store.lastUpdateCheck > 30 * 60 * 1000L) checkForUpdate(manual = false)
@@ -566,6 +571,27 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(hasPriceKey = !store.geminiKey.isNullOrBlank(), providerKeys = store.providersWithKeys()) }
     }
 
+    /** Checks the phone's built-in AI; asks Android to fetch it when the phone supports it. */
+    fun refreshNano(download: Boolean = false) {
+        viewModelScope.launch {
+            var st = Nano.state()
+            _state.update { it.copy(nano = st) }
+            if (download && st == Nano.State.DOWNLOADABLE && _state.value.settings.useNano) {
+                _state.update { it.copy(nano = Nano.State.DOWNLOADING) }
+                Nano.download()
+                st = Nano.state()
+                _state.update { it.copy(nano = st) }
+            }
+        }
+    }
+
+    /** One listing from the built-in Gemini Nano, or null if it isn't usable / gave a bad answer. */
+    private suspend fun nanoListing(prompt: String, photo: android.graphics.Bitmap?, temperature: Float): Describer.Companion.Listing? {
+        if (!_state.value.nanoReady) return null
+        val text = runCatching { Nano.generate(prompt, photo, temperature) }.getOrNull() ?: return null
+        return Describer.parse(text).takeUnless { Describer.looksBroken(it) }
+    }
+
     /** The cloud writer in use (provider, key, model), or null when writing on the phone. */
     private fun cloudWriter(): Triple<Provider, String, String>? {
         val st = _state.value.settings
@@ -679,9 +705,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 runCatching { cloudText(it, prompt, emptyList(), 0.5) }
                     .getOrNull()?.let { text -> Describer.parse(text).takeUnless { l -> Describer.looksBroken(l) } }
             }
+            val fromNano = if (fromCloud == null) nanoListing(prompt, null, 0.5f) else null
             val path = _state.value.modelPath
-            if (fromCloud == null && path == null) throw IllegalStateException("No AI model yet. Add one in Settings, or turn on cloud writing.")
-            val listing = fromCloud ?: withContext(Background) {
+            if (fromCloud == null && fromNano == null && path == null) throw IllegalStateException("No AI model yet. Add one in Settings, or turn on cloud writing.")
+            val listing = fromCloud ?: fromNano ?: withContext(Background) {
                 if (!describer.isLoaded(path!!)) {
                     progress("Loading AI model…", null)
                     describeLock.withLock { describer.ensureLoaded(path) }
@@ -738,8 +765,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                         Gemini.generate(
                             key,
                             listOf(Gemini.textPart(
-                                "Search the web for this product and list its key facts for a second-hand listing: $what\n" +
-                                    "Give at most 6 short lines: full name, brand and model, release year, main specs " +
+                                "The seller typed this product name; it may be abbreviated, misspelled or partly wrong " +
+                                    "(e.g. \"bose qc 45\" = Bose QuietComfort 45). Work out the exact product, search the web for it " +
+                                    "and list its key facts for a second-hand listing: $what\n" +
+                                    "Give at most 6 short lines, starting with the official full product name, then brand and model, release year, main specs " +
                                     "(size, capacity, power, material…), and what normally comes in the box. " +
                                     "No prices, no opinions. If you can't find this exact product, answer only: UNKNOWN"
                             )),
@@ -822,7 +851,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val settings = _state.value.settings
         val writer = cloudWriter()
         val path = _state.value.modelPath
-        if (writer == null && path == null) throw IllegalStateException("No AI model yet. Add one in Settings, or turn on cloud writing.")
+        if (writer == null && path == null && !_state.value.nanoReady) {
+            throw IllegalStateException("No AI model yet. Add one in Settings, or turn on cloud writing.")
+        }
         _state.update { it.copy(generatingId = id) }
         val label = _state.value.busy
         val listing = withContext(Background) {
@@ -845,10 +876,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                         throw e
                     } catch (e: Exception) {
                         cloudFailed = cloudError(writer.first, e)
-                        if (path == null) throw IllegalStateException("$cloudFailed, and there's no on-phone model to fall back on.")
+                        if (path == null && !_state.value.nanoReady) throw IllegalStateException("$cloudFailed, and there's no on-phone model to fall back on.")
                         progress("$cloudFailed, so this one is written on the phone…", _state.value.progress)
                     }
                 }
+                // The phone's built-in Gemini Nano: fast, private, no big download.
+                nanoListing(prompt, analysis.cover, 0.2f)?.let { return it }
                 val p = path ?: return null
                 if (!describer.isLoaded(p)) {
                     progress("Loading AI model (first time takes a few seconds)…", null)

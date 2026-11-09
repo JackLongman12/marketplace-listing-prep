@@ -32,6 +32,7 @@ class Store(context: Context) {
         autoWrite = prefs.getBoolean("autoWrite", true),
         autoUpdate = prefs.getBoolean("autoUpdate", true),
         cloudWriting = prefs.getBoolean("cloudWriting", false),
+        useNano = prefs.getBoolean("useNano", true),
         writingProvider = prefs.getString("writingProvider", null) ?: "gemini",
         writingModel = prefs.getString("writingModel", null) ?: "",
         region = prefs.getString("region", null) ?: "",
@@ -49,6 +50,7 @@ class Store(context: Context) {
             .putBoolean("autoWrite", s.autoWrite)
             .putBoolean("autoUpdate", s.autoUpdate)
             .putBoolean("cloudWriting", s.cloudWriting)
+            .putBoolean("useNano", s.useNano)
             .putString("writingProvider", s.writingProvider)
             .putString("writingModel", s.writingModel)
             .putString("region", s.region)

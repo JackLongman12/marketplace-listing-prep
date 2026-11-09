@@ -994,6 +994,22 @@ private fun SettingsScreen(state: UiState, vm: AppViewModel, onBack: () -> Unit)
             }
             if (keysDialog) PriceKeyDialog(vm, onDone = { keysDialog = false })
             HorizontalDivider()
+            Text("Phone's built-in AI", style = MaterialTheme.typography.titleMedium)
+            SettingSwitch(
+                title = "Use Gemini Nano when available",
+                detail = when (state.nano) {
+                    com.listingprep.ml.Nano.State.READY -> "Ready on this phone. Runs on the phone's AI chip, nothing is uploaded, no extra download."
+                    com.listingprep.ml.Nano.State.DOWNLOADING -> "Android is downloading it (it manages this itself)…"
+                    com.listingprep.ml.Nano.State.DOWNLOADABLE -> "This phone supports it; Android will download it when this is on."
+                    com.listingprep.ml.Nano.State.UNAVAILABLE -> "Not available on this phone (or Android hasn't enabled it yet). The 4.4 GB model or cloud writing is used instead."
+                    null -> "Checking…"
+                },
+                checked = state.settings.useNano,
+                onChange = { on -> vm.updateSettings { it.copy(useNano = on) }; if (on) vm.refreshNano(download = true) },
+            )
+            TextButton(onClick = { vm.refreshNano(download = state.settings.useNano) }) { Text("Check again") }
+
+            HorizontalDivider()
             Text("Cloud writing (optional)", style = MaterialTheme.typography.titleMedium)
             val provider = com.listingprep.ml.Provider.of(state.settings.writingProvider)
             val hasKey = provider.id in state.providerKeys

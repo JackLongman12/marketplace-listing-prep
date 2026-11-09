@@ -126,4 +126,5 @@ dependencies {
     implementation("com.google.mediapipe:tasks-genai:0.10.29")
     implementation("com.google.mlkit:text-recognition:16.0.1")
     implementation("com.google.mlkit:barcode-scanning:17.3.0") // barcodes and QR codes, model bundled
+    implementation("com.google.mlkit:genai-prompt:1.0.0-beta5") // the phone's built-in Gemini Nano (AICore)
 }
