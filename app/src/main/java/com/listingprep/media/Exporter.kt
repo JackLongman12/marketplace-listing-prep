@@ -47,7 +47,7 @@ object Exporter {
             }
             val dest = cr.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return@forEachIndexed
             val ok = runCatching {
-                cr.openOutputStream(dest)!!.use { writeCleanJpeg(cr, Uri.parse(p.uri), it) }
+                cr.openOutputStream(dest)!!.use { writeCleanJpeg(cr, Uri.parse(p.shown), it) }
             }.getOrDefault(false)
             if (ok) {
                 cr.update(dest, ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }, null, null)

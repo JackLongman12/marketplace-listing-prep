@@ -6,6 +6,8 @@ import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.tasks.genai.llminference.GraphOptions
 import com.google.mediapipe.tasks.genai.llminference.LlmInference
 import com.google.mediapipe.tasks.genai.llminference.LlmInferenceSession
+import com.google.mlkit.vision.barcode.BarcodeScanning
+import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
@@ -32,6 +34,35 @@ object Ocr {
         } finally {
             client.close()
         }
+    }
+}
+
+/** Finds barcodes (EAN/UPC/ISBN, Code 128, …) and QR codes in photos. On-device; no lookup. */
+object Codes {
+    suspend fun read(images: List<Bitmap>): List<String> {
+        val scanner = BarcodeScanning.getClient()
+        try {
+            return images.flatMap { bmp ->
+                runCatching { scanner.process(InputImage.fromBitmap(bmp, 0)).await() }.getOrNull().orEmpty()
+            }.mapNotNull { b ->
+                val value = (b.rawValue ?: b.displayValue)?.trim()?.take(300) ?: return@mapNotNull null
+                if (value.isEmpty()) null else "${formatName(b.format)}: $value"
+            }.distinct().take(8)
+        } finally {
+            scanner.close()
+        }
+    }
+
+    private fun formatName(f: Int) = when (f) {
+        Barcode.FORMAT_QR_CODE -> "QR"
+        Barcode.FORMAT_EAN_13 -> "EAN-13"
+        Barcode.FORMAT_EAN_8 -> "EAN-8"
+        Barcode.FORMAT_UPC_A -> "UPC-A"
+        Barcode.FORMAT_UPC_E -> "UPC-E"
+        Barcode.FORMAT_DATA_MATRIX -> "Data Matrix"
+        Barcode.FORMAT_PDF417 -> "PDF417"
+        Barcode.FORMAT_AZTEC -> "Aztec"
+        else -> "Barcode"
     }
 }
 
@@ -87,12 +118,18 @@ class Describer(private val context: Context) : Closeable {
     companion object {
         const val MAX_IMAGES = 2
 
-        fun prompt(item: Item, ocrText: String): String = buildString {
+        fun prompt(item: Item, ocrText: String, style: String): String = buildString {
             appendLine("You are helping someone sell a used item on Facebook Marketplace. Look at the photo(s) of the item.")
             appendLine()
             appendLine("Text read automatically from the item or its labels (may contain errors):")
             appendLine(ocrText.ifBlank { "(none)" })
             appendLine()
+            if (item.codes.isNotEmpty()) {
+                appendLine("Barcodes / QR codes scanned from the item:")
+                item.codes.forEach { appendLine(it) }
+                appendLine("(A QR code may contain the product name, model or a product web link: use what it clearly says. Never guess a product from a barcode number alone.)")
+                appendLine()
+            }
             appendLine("Seller's condition rating: ${item.condition}")
             appendLine("Seller's notes: ${item.notes.ifBlank { "(none)" }}")
             appendLine()
@@ -104,6 +141,11 @@ class Describer(private val context: Context) : Closeable {
             appendLine("Rules:")
             appendLine("- Only state a brand, model, or spec if you can see it in the photo, read it in the text above, or it is in the seller's notes. Otherwise describe the item generically.")
             appendLine("- Plain, friendly language. No emojis, no hashtags, no price, no pickup or payment details.")
+            if (style.isNotBlank()) {
+                appendLine()
+                appendLine("The seller's own style instructions (follow them, but keep the TITLE/DESCRIPTION format and never invent facts):")
+                appendLine(style.trim().take(1000))
+            }
         }
 
         /** Splits the model's answer into (title, description). */

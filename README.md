@@ -10,6 +10,10 @@ Turn a pile of photos into ready-to-post Facebook Marketplace listings, entirely
 - **Or sorts existing photos.** *From gallery* lets you pick photos; on-device image matching groups them into items and picks the sharpest as the cover.
 - **Tracks what's sold.** Items move from *To post* to *Posted* to *Sold*. Delete a sold item and its photos go too: in-app shots, the copies made for Facebook and, if you choose, the gallery originals.
 - **Writes the listing.** Gemma 3n runs on the phone, reads brand names and labels from the photos, and writes a title and description. Nothing is uploaded.
+- **Reads barcodes and QR codes** in your photos (on the phone, no lookup) and gives them to the AI. QR codes often name the product.
+- **Your writing style.** Settings → *AI writing style* sets how every description reads (presets or your own instructions).
+- **Background removal (optional).** Turn it on in Settings, then tap the item in a photo and the rest turns white. The original is kept.
+- **Bulk select.** Long-press items to merge, mark posted/sold, or delete several at once.
 - **You check it.** Each item has a *Checked* switch; sharing stays locked until you've reviewed the photos and text.
 - **Posts it fast.** *Share to Marketplace* saves the photos cover-first, opens Facebook, and shows a floating panel with one-tap copy buttons for the title and description. *Done* marks the item posted.
 

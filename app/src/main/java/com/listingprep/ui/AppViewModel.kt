@@ -28,6 +28,7 @@ import com.listingprep.ml.Embedder
 import com.listingprep.ml.Grouper
 import com.listingprep.ml.ModelFiles
 import com.listingprep.ml.Ocr
+import com.listingprep.ml.Codes
 import com.listingprep.data.Photo
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -134,10 +135,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val item = _state.value.items.find { it.id == id } ?: return
         setItems { items -> items.filterNot { it.id == id } }
         // After removal, so photos still used by other items keep their access.
-        val remaining = _state.value.items.flatMap { it.photos }.map { it.uri }.toSet()
+        val remaining = _state.value.items.flatMap { it.photos }.flatMap { it.files() }.toSet()
         viewModelScope.launch(Dispatchers.IO) {
             Exporter.deleteExported(ctx, item.exportedUris)
-            releasePhotoAccess(item.photos.map { it.uri }.filterNot { it in remaining })
+            releasePhotoAccess(item.photos.flatMap { it.files() }.filterNot { it in remaining })
         }
     }
 
@@ -159,9 +160,20 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun releaseUnused(uris: List<String>) {
-        val used = _state.value.items.flatMap { it.photos }.map { it.uri }.toSet()
+        val used = _state.value.items.flatMap { it.photos }.flatMap { it.files() }.toSet()
         val gone = uris.filterNot { it in used }
         if (gone.isNotEmpty()) viewModelScope.launch(Dispatchers.IO) { releasePhotoAccess(gone) }
+    }
+
+    private fun Photo.files() = listOfNotNull(uri, cutout)
+
+    /** Stores the white-background version of a photo; the original stays for "Restore". */
+    fun setCutout(id: String, index: Int, cutout: File?) {
+        val old = _state.value.items.find { it.id == id }?.photos?.getOrNull(index)?.cutout
+        updateItem(id) { item ->
+            item.copy(photos = item.photos.mapIndexed { i, p -> if (i == index) p.copy(cutout = cutout?.let { Uri.fromFile(it).toString() }) else p })
+        }
+        if (old != null) releaseUnused(listOf(old))
     }
 
     /** Photos from the in-app camera, already grouped by item (one group per "Next item"). */
@@ -183,14 +195,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun removePhoto(id: String, index: Int) {
-        val uri = _state.value.items.find { it.id == id }?.photos?.getOrNull(index)?.uri ?: return
+        val photo = _state.value.items.find { it.id == id }?.photos?.getOrNull(index) ?: return
         setItems { items ->
             items.mapNotNull { item ->
                 if (item.id != id) item
                 else item.copy(photos = item.photos.filterIndexed { i, _ -> i != index }).takeIf { it.photos.isNotEmpty() }
             }
         }
-        releaseUnused(listOf(uri))
+        releaseUnused(photo.files())
     }
 
     fun movePhoto(id: String, index: Int, target: MoveTarget) = setItems { items ->
@@ -219,6 +231,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val items = _state.value.items
         val i = items.indexOfFirst { it.id == id }
         items.getOrNull(i + 1)?.let { mergeWith(id, it.id) }
+    }
+
+    /** Merges all [ids] into the first one. */
+    fun mergeAll(ids: List<String>) {
+        val first = ids.firstOrNull() ?: return
+        ids.drop(1).forEach { mergeWith(first, it) }
     }
 
     /** Moves [otherId]'s photos and notes into [id] and removes [otherId]. */
@@ -324,8 +342,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             val ocrImages = uris.take(4).mapNotNull { runCatching { MediaInfo.decode(cr, it, 1280) }.getOrNull() }
             val ocrText = Ocr.read(ocrImages)
             ocrImages.forEach { it.recycle() }
+            val codes = scanCodesIn(uris)
+            if (codes != item.codes) updateItem(id) { it.copy(codes = codes) }
             val llmImages = uris.take(Describer.MAX_IMAGES).mapNotNull { runCatching { MediaInfo.decode(cr, it, 768) }.getOrNull() }
-            val raw = describer.describe(llmImages, Describer.prompt(item, ocrText))
+            val raw = describer.describe(llmImages, Describer.prompt(item.copy(codes = codes), ocrText, _state.value.settings.writingStyle))
             llmImages.forEach { it.recycle() }
             Describer.parse(raw)
         }
@@ -337,6 +357,25 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
         _state.update { it.copy(generatingId = null) }
+    }
+
+    /** Reads barcodes / QR codes from every photo (the code is often on just one angle). */
+    private suspend fun scanCodesIn(uris: List<Uri>): List<String> {
+        val cr = ctx.contentResolver
+        val found = mutableListOf<String>()
+        uris.take(16).forEach { uri ->
+            val bmp = runCatching { MediaInfo.decode(cr, uri, 1600) }.getOrNull() ?: return@forEach
+            found += Codes.read(listOf(bmp))
+            bmp.recycle()
+        }
+        return found.distinct().take(8)
+    }
+
+    fun scanCodes(id: String) = work("Looking for barcodes and QR codes…") {
+        val item = _state.value.items.find { it.id == id } ?: return@work
+        val codes = withContext(Dispatchers.Default) { scanCodesIn(item.photos.map { Uri.parse(it.uri) }) }
+        updateItem(id) { it.copy(codes = codes) }
+        if (codes.isEmpty()) showError("No barcode or QR code found. Take a close, sharp photo of it and try again.")
     }
 
     // ---- model file -------------------------------------------------------

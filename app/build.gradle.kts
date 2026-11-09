@@ -65,27 +65,37 @@ android {
     }
 }
 
-// Small (~4 MB) on-device image embedding model used to group photos by item.
-// Fetched once from Google's MediaPipe model bucket and bundled into the app.
+// Small on-device models bundled into the app, fetched once from Google's MediaPipe bucket.
 // Pinned SHA-256 so a tampered or swapped file fails the build instead of shipping.
-val embedderModel = file("src/main/assets/mobilenet_v3_small.tflite")
-val embedderSha256 = "bbbb4c51a55a53905af1daec995ca1aae355046f8839bb8c9f5ce9271394bc40"
+//  - mobilenet_v3_small (~4 MB): image embeddings to group photos by item.
+//  - magic_touch (~6 MB): tap-to-select object segmentation for background removal.
+val bundledModels = mapOf(
+    "mobilenet_v3_small.tflite" to (
+        "https://storage.googleapis.com/mediapipe-models/image_embedder/mobilenet_v3_small/float32/1/mobilenet_v3_small.tflite" to
+            "bbbb4c51a55a53905af1daec995ca1aae355046f8839bb8c9f5ce9271394bc40"
+        ),
+    "magic_touch.tflite" to (
+        "https://storage.googleapis.com/mediapipe-models/interactive_segmenter/magic_touch/float32/1/magic_touch.tflite" to
+            "e24338a717c1b7ad8d159666677ef400babb7f33b8ad60c4d96db4ecf694cd25"
+        ),
+)
 fun sha256Of(f: File): String =
     MessageDigest.getInstance("SHA-256").digest(f.readBytes()).joinToString("") { "%02x".format(it) }
 val downloadEmbedderModel by tasks.registering {
-    outputs.file(embedderModel)
+    bundledModels.keys.forEach { outputs.file(file("src/main/assets/$it")) }
     doLast {
-        if (!embedderModel.exists()) {
-            embedderModel.parentFile.mkdirs()
-            val url = "https://storage.googleapis.com/mediapipe-models/image_embedder/mobilenet_v3_small/float32/1/mobilenet_v3_small.tflite"
-            URI(url).toURL().openStream().use { input ->
-                embedderModel.outputStream().use { input.copyTo(it) }
+        bundledModels.forEach { (name, source) ->
+            val (url, sha) = source
+            val model = file("src/main/assets/$name")
+            if (!model.exists()) {
+                model.parentFile.mkdirs()
+                URI(url).toURL().openStream().use { input -> model.outputStream().use { input.copyTo(it) } }
             }
-        }
-        val actual = sha256Of(embedderModel)
-        if (actual != embedderSha256) {
-            embedderModel.delete()
-            throw GradleException("mobilenet_v3_small.tflite checksum mismatch: $actual")
+            val actual = sha256Of(model)
+            if (actual != sha) {
+                model.delete()
+                throw GradleException("$name checksum mismatch: $actual")
+            }
         }
     }
 }
@@ -115,4 +125,5 @@ dependencies {
     implementation("com.google.mediapipe:tasks-vision:0.10.29")
     implementation("com.google.mediapipe:tasks-genai:0.10.29")
     implementation("com.google.mlkit:text-recognition:16.0.1")
+    implementation("com.google.mlkit:barcode-scanning:17.3.0") // barcodes and QR codes, model bundled
 }

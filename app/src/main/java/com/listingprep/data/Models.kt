@@ -13,7 +13,12 @@ data class Photo(
     val uri: String,
     val takenAt: Long,
     val sharpness: Double,
-)
+    /** Same photo with the background replaced by white (in-app file), or null. The original is kept. */
+    val cutout: String? = null,
+) {
+    /** What's shown and shared: the white-background version when there is one. */
+    val shown: String get() = cutout ?: uri
+}
 
 data class Item(
     val id: String = UUID.randomUUID().toString(),
@@ -28,6 +33,8 @@ data class Item(
     val checked: Boolean = false,
     /** Copies saved to Pictures/ListingPrep for the last share, replaced on the next one. */
     val exportedUris: List<String> = emptyList(),
+    /** Barcodes / QR codes found in the photos, e.g. "EAN-13: 4006381333931" or "QR: https://…". */
+    val codes: List<String> = emptyList(),
 )
 
 /** Everything Facebook needs is filled in and a human has signed off. */
@@ -37,6 +44,10 @@ fun Item.readyToShare(): Boolean =
 data class Settings(
     val footer: String = "Pickup only. Cash or bank transfer. No holds.",
     val defaultCondition: String = "Good",
+    /** Your own instructions for how the AI writes every listing. */
+    val writingStyle: String = "",
+    /** Shows "Remove background" on photos. Off by default. */
+    val backgroundRemoval: Boolean = false,
 )
 
 /** Full description text as it should be pasted into Facebook. */

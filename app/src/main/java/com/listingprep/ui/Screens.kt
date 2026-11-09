@@ -7,7 +7,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Checkbox
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -171,10 +175,25 @@ private fun ItemListScreen(
     val shown = remember(state.items, tab) { state.items.filter { tab.matches(it) } }
     val deleter = rememberItemDeleter(vm)
     val share = rememberMarketplaceSharer(vm, state.settings)
+    // Bulk select: long-press an item to start, tap to add or remove.
+    var selected by remember { mutableStateOf(setOf<String>()) }
+    val selecting = selected.isNotEmpty()
+    LaunchedEffect(tab, state.items) { selected = selected.filter { id -> shown.any { it.id == id } }.toSet() }
+    BackHandler(enabled = selecting) { selected = emptySet() }
+    fun toggle(id: String) { selected = if (id in selected) selected - id else selected + id }
+    val chosen = shown.map { it.id }.filter { it in selected } // in list order
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            if (selecting) TopAppBar(
+                title = { Text("${selected.size} selected") },
+                navigationIcon = {
+                    IconButton(onClick = { selected = emptySet() }) { Icon(Icons.Default.Close, contentDescription = "Cancel selection") }
+                },
+                actions = {
+                    TextButton(onClick = { selected = shown.map { it.id }.toSet() }) { Text("Select all") }
+                },
+            ) else TopAppBar(
                 title = { Text("Listing Prep") },
                 actions = {
                     IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, contentDescription = "Settings") }
@@ -182,7 +201,37 @@ private fun ItemListScreen(
             )
         },
         bottomBar = {
-            BottomAppBar {
+            if (selecting) BottomAppBar {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    when (tab) {
+                        Tab.ACTIVE -> {
+                            OutlinedButton(onClick = { vm.mergeAll(chosen); selected = emptySet() }, enabled = idle && chosen.size >= 2) {
+                                Text("Merge")
+                            }
+                            OutlinedButton(onClick = { chosen.forEach(vm::markPosted); selected = emptySet() }, enabled = idle) {
+                                Text("Posted")
+                            }
+                        }
+                        Tab.POSTED -> {
+                            OutlinedButton(onClick = { chosen.forEach(vm::markSold); selected = emptySet() }, enabled = idle) {
+                                Text("Sold")
+                            }
+                            OutlinedButton(onClick = { chosen.forEach(vm::markActive); selected = emptySet() }, enabled = idle) {
+                                Text("Not posted")
+                            }
+                        }
+                        Tab.SOLD -> OutlinedButton(onClick = { chosen.forEach(vm::markPosted); selected = emptySet() }, enabled = idle) {
+                            Text("Not sold")
+                        }
+                    }
+                    Spacer(Modifier.weight(1f))
+                    Button(onClick = { deleter(chosen); selected = emptySet() }, enabled = idle) { Text("Delete") }
+                }
+            } else BottomAppBar {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -293,8 +342,10 @@ private fun ItemListScreen(
                     ItemCard(
                         item,
                         generating = state.generatingId == item.id,
-                        onClick = { onOpen(item.id) },
-                        action = when {
+                        onClick = { if (selecting) toggle(item.id) else onOpen(item.id) },
+                        onLongClick = { toggle(item.id) },
+                        selected = if (selecting) item.id in selected else null,
+                        action = if (selecting) null else when {
                             item.isActive && item.readyToShare() -> "Share" to { share(item) }
                             item.status == Status.POSTED -> "Sold" to { vm.markSold(item.id) }
                             item.status == Status.SOLD -> "Delete" to { deleter(listOf(item.id)) }
@@ -302,7 +353,7 @@ private fun ItemListScreen(
                         },
                     )
                     val next = shown.getOrNull(index + 1)
-                    if (tab == Tab.ACTIVE && next != null) {
+                    if (tab == Tab.ACTIVE && next != null && !selecting) {
                         TextButton(
                             onClick = { vm.mergeWith(item.id, next.id) },
                             enabled = idle,
@@ -327,12 +378,27 @@ private enum class Tab(val label: String, val empty: String) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ItemCard(item: Item, generating: Boolean, onClick: () -> Unit, action: Pair<String, () -> Unit>?) {
-    Card(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+private fun ItemCard(
+    item: Item,
+    generating: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    selected: Boolean?,
+    action: Pair<String, () -> Unit>?,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth().clip(CardDefaults.shape).combinedClickable(onClick = onClick, onLongClick = onLongClick),
+        colors = if (selected == true) CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+        else CardDefaults.cardColors(),
+    ) {
         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (selected != null) {
+                Checkbox(checked = selected, onCheckedChange = { onClick() })
+            }
             AsyncImage(
-                model = item.photos.firstOrNull()?.uri?.let(Uri::parse),
+                model = item.photos.firstOrNull()?.shown?.let(Uri::parse),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.size(84.dp).clip(RoundedCornerShape(8.dp)),
@@ -380,6 +446,7 @@ private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () 
     val index = state.items.indexOfFirst { it.id == item.id }
     val share = rememberMarketplaceSharer(vm, state.settings)
     val deleter = rememberItemDeleter(vm)
+    var editBackground by remember { mutableStateOf<Int?>(null) }
 
     Scaffold(
         topBar = {
@@ -416,8 +483,35 @@ private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () 
                         onCover = { vm.setCover(item.id, i) },
                         onMove = { target -> vm.movePhoto(item.id, i, target) },
                         onRemove = { vm.removePhoto(item.id, i) },
+                        backgroundRemoval = state.settings.backgroundRemoval,
+                        onRemoveBackground = { editBackground = i },
+                        onRestore = { vm.setCutout(item.id, i, null) },
                     )
                 }
+            }
+            editBackground?.let { i ->
+                item.photos.getOrNull(i)?.let { photo ->
+                    BackgroundDialog(
+                        photo = photo,
+                        onSave = { file -> vm.setCutout(item.id, i, file); editBackground = null },
+                        onDismiss = { editBackground = null },
+                    )
+                }
+            }
+
+            Text("Barcode / QR code", style = MaterialTheme.typography.labelLarge)
+            if (item.codes.isEmpty()) {
+                Text(
+                    "Photograph the barcode or QR code as one of the angles, then scan. It's read on the phone; " +
+                        "a QR code often names the product, a barcode number alone doesn't.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                item.codes.forEach { Text(it, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+            }
+            OutlinedButton(onClick = { vm.scanCodes(item.id) }, enabled = idle) {
+                Text(if (item.codes.isEmpty()) "Scan photos for codes" else "Scan again")
             }
 
             Text("Condition", style = MaterialTheme.typography.labelLarge)
@@ -542,11 +636,14 @@ private fun PhotoThumb(
     onCover: () -> Unit,
     onMove: (MoveTarget) -> Unit,
     onRemove: () -> Unit,
+    backgroundRemoval: Boolean,
+    onRemoveBackground: () -> Unit,
+    onRestore: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
     Box {
         AsyncImage(
-            model = Uri.parse(photo.uri),
+            model = Uri.parse(photo.shown),
             contentDescription = "Photo ${index + 1}",
             contentScale = ContentScale.Crop,
             modifier = Modifier
@@ -571,6 +668,11 @@ private fun PhotoThumb(
             DropdownMenuItem(text = { Text("Move to a new item") }, onClick = { menu = false; onMove(MoveTarget.NEW) })
             if (hasPrevious) DropdownMenuItem(text = { Text("Move to previous item") }, onClick = { menu = false; onMove(MoveTarget.PREVIOUS) })
             if (hasNext) DropdownMenuItem(text = { Text("Move to next item") }, onClick = { menu = false; onMove(MoveTarget.NEXT) })
+            if (backgroundRemoval) DropdownMenuItem(
+                text = { Text(if (photo.cutout == null) "Remove background" else "Redo background") },
+                onClick = { menu = false; onRemoveBackground() },
+            )
+            if (photo.cutout != null) DropdownMenuItem(text = { Text("Restore original background") }, onClick = { menu = false; onRestore() })
             DropdownMenuItem(text = { Text("Remove from item") }, onClick = { menu = false; onRemove() })
         }
     }
@@ -612,6 +714,49 @@ private fun SettingsScreen(state: UiState, vm: AppViewModel, onBack: () -> Unit)
             PrivacySection(state, vm)
 
             HorizontalDivider()
+            Text("AI writing style", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Applies to every description the AI writes. Facts still come only from the photos, codes and your notes.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                STYLE_PRESETS.forEach { (label, text) ->
+                    FilterChip(
+                        selected = state.settings.writingStyle == text,
+                        onClick = { vm.updateSettings { it.copy(writingStyle = text) } },
+                        label = { Text(label) },
+                    )
+                }
+            }
+            OutlinedTextField(
+                value = state.settings.writingStyle,
+                onValueChange = { v -> vm.updateSettings { it.copy(writingStyle = v.take(1000)) } },
+                label = { Text("Style instructions") },
+                placeholder = { Text("e.g. Short and casual. Mention it's from a smoke-free home. Use Australian spelling.") },
+                minLines = 3,
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            HorizontalDivider()
+            Text("Photos", style = MaterialTheme.typography.titleMedium)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Background removal", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Adds \"Remove background\" to the photo menu: tap the item and the rest turns white. " +
+                            "Runs on the phone; the original is kept.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = state.settings.backgroundRemoval,
+                    onCheckedChange = { on -> vm.updateSettings { it.copy(backgroundRemoval = on) } },
+                )
+            }
+
+            HorizontalDivider()
             Text("Listing defaults", style = MaterialTheme.typography.titleMedium)
             OutlinedTextField(
                 value = state.settings.footer,
@@ -633,3 +778,11 @@ private fun SettingsScreen(state: UiState, vm: AppViewModel, onBack: () -> Unit)
         }
     }
 }
+
+private val STYLE_PRESETS = listOf(
+    "Default" to "",
+    "Short" to "Keep it short: one sentence, then at most 3 bullet points.",
+    "Detailed" to "Be thorough: describe features, size and condition in detail, with up to 6 bullet points.",
+    "Casual" to "Write casually and warmly, like a friendly neighbour selling something.",
+    "Professional" to "Write in a clear, professional tone like a small shop listing.",
+)

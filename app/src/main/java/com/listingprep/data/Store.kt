@@ -27,12 +27,16 @@ class Store(context: Context) {
     fun loadSettings() = Settings(
         footer = prefs.getString("footer", null) ?: Settings().footer,
         defaultCondition = prefs.getString("defaultCondition", null) ?: Settings().defaultCondition,
+        writingStyle = prefs.getString("writingStyle", null) ?: "",
+        backgroundRemoval = prefs.getBoolean("backgroundRemoval", false),
     )
 
     fun saveSettings(s: Settings) {
         prefs.edit()
             .putString("footer", s.footer)
             .putString("defaultCondition", s.defaultCondition)
+            .putString("writingStyle", s.writingStyle)
+            .putBoolean("backgroundRemoval", s.backgroundRemoval)
             .apply()
     }
 
@@ -59,12 +63,14 @@ class Store(context: Context) {
         put("createdAt", createdAt)
         put("checked", checked)
         put("exportedUris", JSONArray().apply { exportedUris.forEach { put(it) } })
+        put("codes", JSONArray().apply { codes.forEach { put(it) } })
         put("photos", JSONArray().apply {
             photos.forEach { p ->
                 put(JSONObject().apply {
                     put("uri", p.uri)
                     put("takenAt", p.takenAt)
                     put("sharpness", p.sharpness)
+                    p.cutout?.let { put("cutout", it) }
                 })
             }
         })
@@ -76,7 +82,7 @@ class Store(context: Context) {
             id = getString("id"),
             photos = (0 until ps.length()).map {
                 val p = ps.getJSONObject(it)
-                Photo(p.getString("uri"), p.optLong("takenAt"), p.optDouble("sharpness", 0.0))
+                Photo(p.getString("uri"), p.optLong("takenAt"), p.optDouble("sharpness", 0.0), p.optString("cutout").ifBlank { null })
             },
             title = optString("title"),
             description = optString("description"),
@@ -86,6 +92,7 @@ class Store(context: Context) {
             createdAt = optLong("createdAt"),
             checked = optBoolean("checked", false),
             exportedUris = optJSONArray("exportedUris")?.let { a -> (0 until a.length()).map { a.getString(it) } }.orEmpty(),
+            codes = optJSONArray("codes")?.let { a -> (0 until a.length()).map { a.getString(it) } }.orEmpty(),
         )
     }
 }
