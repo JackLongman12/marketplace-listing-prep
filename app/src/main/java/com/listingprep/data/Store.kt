@@ -124,6 +124,8 @@ class Store(context: Context) {
         put("exportedUris", JSONArray().apply { exportedUris.forEach { put(it) } })
         put("codes", JSONArray().apply { codes.forEach { put(it) } })
         put("product", product)
+        put("identity", identity)
+        put("unsure", unsure)
         put("photos", JSONArray().apply {
             photos.forEach { p ->
                 put(JSONObject().apply {
@@ -154,6 +156,8 @@ class Store(context: Context) {
             checked = optBoolean("checked", false),
             exportedUris = optJSONArray("exportedUris")?.let { a -> (0 until a.length()).map { a.getString(it) } }.orEmpty(),
             product = optString("product"),
+            identity = optString("identity"),
+            unsure = optBoolean("unsure", false),
             codes = optJSONArray("codes")?.let { a -> (0 until a.length()).map { a.getString(it) } }.orEmpty(),
         )
     }

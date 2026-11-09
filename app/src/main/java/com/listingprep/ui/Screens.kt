@@ -497,6 +497,8 @@ private fun ItemCard(
                 )
                 if (generating) {
                     Text("Writing…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                } else if (item.unsure) {
+                    Text("AI wasn't sure what this is: tap to tell it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
                 } else if (item.description.isNotBlank()) {
                     Text(item.description, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
@@ -627,6 +629,36 @@ private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () 
                         label = { Text(c) },
                     )
                 }
+            }
+
+            // "What is it?" Shown prominently when the AI couldn't tell; always editable.
+            var identity by remember(item.id, item.identity) { mutableStateOf(item.identity) }
+            if (item.unsure) Card(
+                Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+            ) {
+                Text(
+                    "The AI couldn't tell exactly what this is, so the description is generic. Type what it is " +
+                        "(brand and model if you know them) and it'll write it again from that" +
+                        if (state.hasPriceKey && state.settings.onlineLookup) ", after looking the product up." else ".",
+                    Modifier.padding(12.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            OutlinedTextField(
+                value = identity,
+                onValueChange = { identity = it.take(200) },
+                label = { Text("What is it? (brand, model)") },
+                placeholder = { Text("e.g. Sony WH-1000XM4 headphones") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            if (identity.isNotBlank() && (identity.trim() != item.identity || item.unsure)) {
+                Button(
+                    onClick = { vm.identifyAndWrite(item.id, identity) },
+                    enabled = idle && state.canWrite,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(if (item.description.isBlank()) "Write description from this" else "Rewrite description from this") }
             }
 
             OutlinedTextField(

@@ -721,6 +721,42 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (store.geminiKey != null) findPrice(id) // queued: runs right after the rewrite
     }
 
+    /**
+     * You tell the AI what the item is (e.g. "Sony WH-1000XM4 headphones"). With a Google key, the
+     * product's facts are looked up first (only that text is sent); then the listing is rewritten
+     * from your answer, the photos and those facts.
+     */
+    fun identifyAndWrite(id: String, identity: String) {
+        val what = identity.trim().take(200)
+        if (what.isBlank()) return
+        updateItem(id) { it.copy(identity = what, unsure = false, product = "") }
+        val key = store.geminiKey
+        writingJob = work("Looking up \"$what\"…") {
+            if (key != null && _state.value.settings.onlineLookup) {
+                val facts = withContext(Dispatchers.IO) {
+                    runCatching {
+                        Gemini.generate(
+                            key,
+                            listOf(Gemini.textPart(
+                                "Search the web for this product and list its key facts for a second-hand listing: $what\n" +
+                                    "Give at most 6 short lines: full name, brand and model, release year, main specs " +
+                                    "(size, capacity, power, material…), and what normally comes in the box. " +
+                                    "No prices, no opinions. If you can't find this exact product, answer only: UNKNOWN"
+                            )),
+                            search = true,
+                            temperature = 0.1,
+                        ).text
+                    }.getOrNull()
+                }?.filter { !it.isISOControl() || it == '\n' }?.trim()?.take(800)
+                if (!facts.isNullOrBlank() && !facts.startsWith("UNKNOWN", ignoreCase = true)) {
+                    updateItem(id) { it.copy(product = facts) }
+                }
+            }
+            progress("Writing the description…", null)
+            generateOne(id)
+        }
+    }
+
     /** Stops writing descriptions (the one in progress is discarded). */
     fun stopWriting() {
         writingJob?.cancel()
@@ -851,6 +887,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 title = listing.title.ifBlank { it.title },
                 description = withDefaults(listing.description, it.condition, _state.value.settings),
                 status = if (it.isActive) Status.READY else it.status,
+                unsure = !listing.identified && it.identity.isBlank(),
             )
         }
         _state.update { it.copy(generatingId = null) }

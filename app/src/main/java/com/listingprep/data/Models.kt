@@ -39,6 +39,10 @@ data class Item(
     val codes: List<String> = emptyList(),
     /** Product info from the online barcode lookup, cached so it's fetched once. */
     val product: String = "",
+    /** What the seller says the item is (brand, model…), when the AI couldn't tell. */
+    val identity: String = "",
+    /** The AI wrote a generic description because it couldn't tell what the item is. */
+    val unsure: Boolean = false,
 )
 
 /** Everything Facebook needs is filled in and a human has signed off. */

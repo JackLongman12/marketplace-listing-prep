@@ -176,9 +176,10 @@ class Describer(private val context: Context) : Closeable {
             appendLine("Describe ONLY what you can actually see or what the facts below say. If you are not sure what the item is, use a plain general name (for example \"desk lamp\", \"backpack\").")
             appendLine()
             appendLine("FACTS")
+            if (item.identity.isNotBlank()) appendLine("WHAT THE ITEM IS (from the seller, this is correct; name it exactly like this): ${item.identity.trim().take(200)}")
             appendLine("Condition (from the seller): ${item.condition}")
             if (item.notes.isNotBlank()) appendLine("Seller's notes (true): ${item.notes.trim().take(600)}")
-            if (item.product.isNotBlank()) appendLine("Product database match for the barcode (probably right, check against the photo): ${item.product}")
+            if (item.product.isNotBlank()) appendLine("Product facts found online (probably right; prefer what you see in the photo if they disagree): ${item.product}")
             val qr = item.codes.filter { it.startsWith("QR:") }
             if (qr.isNotEmpty()) appendLine("QR code text: ${qr.joinToString(" | ").take(300)}")
             if (ocrText.isNotBlank()) {
