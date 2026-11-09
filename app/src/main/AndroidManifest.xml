@@ -18,11 +18,22 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!-- Built-in camera. Photos stay inside the app; no location is recorded. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
     <queries>
         <package android:name="com.facebook.katana" />
     </queries>
 
+    <!--
+      hasFragileUserData: when you uninstall, Android offers a "Keep app data" box. Tick it
+      and the 4.4 GB AI model (and your items) are still there after reinstalling.
+      Unticked (the default), uninstall deletes everything as before.
+    -->
     <application
+        android:name=".ListingPrepApp"
+        android:hasFragileUserData="true"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="false"
@@ -63,14 +74,5 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
-        <provider
-            android:name="androidx.core.content.FileProvider"
-            android:authorities="com.listingprep.files"
-            android:exported="false"
-            android:grantUriPermissions="true">
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/file_paths" />
-        </provider>
     </application>
 </manifest>

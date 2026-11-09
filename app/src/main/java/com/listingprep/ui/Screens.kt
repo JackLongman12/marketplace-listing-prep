@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.MediaStore
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -29,7 +28,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -64,17 +62,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -85,14 +79,9 @@ import com.listingprep.data.CONDITIONS
 import com.listingprep.data.Item
 import com.listingprep.data.Photo
 import com.listingprep.data.Status
-import com.listingprep.data.listingDescription
-import com.listingprep.media.Exporter
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.File
 
 private const val SETTINGS = "__settings__"
+private const val CAMERA = "__camera__"
 
 @Composable
 fun App(
@@ -113,7 +102,8 @@ fun App(
     }
 
     when (val current = screen) {
-        null -> ItemListScreen(state, vm, onOpen = { screen = it }, onSettings = { screen = SETTINGS })
+        null -> ItemListScreen(state, vm, onOpen = { screen = it }, onSettings = { screen = SETTINGS }, onCamera = { screen = CAMERA })
+        CAMERA -> CameraScreen(onFinish = { groups -> vm.addCameraItems(groups); screen = null })
         SETTINGS -> SettingsScreen(state, vm, onBack = { screen = null })
         else -> {
             val item = state.items.find { it.id == current }
@@ -166,7 +156,13 @@ private fun statusLabel(item: Item) = when {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ItemListScreen(state: UiState, vm: AppViewModel, onOpen: (String) -> Unit, onSettings: () -> Unit) {
+private fun ItemListScreen(
+    state: UiState,
+    vm: AppViewModel,
+    onOpen: (String) -> Unit,
+    onSettings: () -> Unit,
+    onCamera: () -> Unit,
+) {
     val context = LocalContext.current
     val picker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(MediaStore.getPickImagesMaxLimit())
@@ -200,11 +196,16 @@ private fun ItemListScreen(state: UiState, vm: AppViewModel, onOpen: (String) ->
                     Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    Button(
+                        onClick = onCamera,
+                        enabled = idle,
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Camera", maxLines = 1) }
                     OutlinedButton(
                         onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                         enabled = idle,
                         modifier = Modifier.weight(1f),
-                    ) { Text("Pick photos", maxLines = 1) }
+                    ) { Text("Gallery", maxLines = 1) }
                     OutlinedButton(
                         onClick = {
                             val full = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) ==
@@ -215,11 +216,6 @@ private fun ItemListScreen(state: UiState, vm: AppViewModel, onOpen: (String) ->
                         enabled = idle,
                         modifier = Modifier.weight(1f),
                     ) { Text("Today's", maxLines = 1) }
-                    Button(
-                        onClick = { vm.generateAll() },
-                        enabled = idle && state.modelPath != null && pending > 0,
-                        modifier = Modifier.weight(1f),
-                    ) { Text(if (pending > 0) "Write $pending" else "Write all", maxLines = 1) }
                 }
             }
         },
@@ -232,7 +228,21 @@ private fun ItemListScreen(state: UiState, vm: AppViewModel, onOpen: (String) ->
             ),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            item { StatusCards(state, vm) }
+            item(key = "status", contentType = "status") { StatusCards(state, vm) }
+            if (state.modelPath != null && pending > 0) {
+                item(key = "write", contentType = "write") {
+                    Card(Modifier.fillMaxWidth()) {
+                        Row(Modifier.padding(start = 12.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "$pending item${if (pending == 1) "" else "s"} without a description",
+                                Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Button(onClick = { vm.generateAll() }, enabled = idle) { Text("Write all") }
+                        }
+                    }
+                }
+            }
             if (state.modelPath == null) {
                 item {
                     val download = state.download
@@ -262,15 +272,15 @@ private fun ItemListScreen(state: UiState, vm: AppViewModel, onOpen: (String) ->
             if (state.items.isEmpty() && idle) {
                 item {
                     Text(
-                        "Take photos of everything you're selling, one item after another, " +
-                            "then tap Today's (or Pick photos). The app sorts them into items.",
+                        "Tap Camera and shoot each thing you're selling: all its angles, then Next item. " +
+                            "Already have photos? Use Gallery or Today's and the app sorts them into items.",
                         Modifier.padding(vertical = 24.dp),
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
-            itemsIndexed(state.items, key = { _, it -> it.id }) { index, item ->
+            itemsIndexed(state.items, key = { _, it -> it.id }, contentType = { _, _ -> "item" }) { index, item ->
                 Column {
                     ItemCard(
                         item,
@@ -312,9 +322,8 @@ private fun ItemCard(item: Item, generating: Boolean, onClick: () -> Unit, onSha
                     overflow = TextOverflow.Ellipsis,
                 )
                 val count = item.photos.size
-                val price = if (item.price.isNotBlank()) " · ${item.price}" else ""
                 Text(
-                    "$count photo${if (count == 1) "" else "s"} · ${statusLabel(item)}$price",
+                    "$count photo${if (count == 1) "" else "s"} · ${statusLabel(item)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -341,9 +350,6 @@ private fun ItemCard(item: Item, generating: Boolean, onClick: () -> Unit, onSha
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () -> Unit) {
-    val context = LocalContext.current
-    val clipboard = LocalClipboardManager.current
-    val scope = rememberCoroutineScope()
     val idle = state.busy == null
     val index = state.items.indexOfFirst { it.id == item.id }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -407,12 +413,13 @@ private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () 
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            Button(
+            // Only offered while there's no description yet: once written, edit it by hand.
+            if (item.description.isBlank()) Button(
                 onClick = { vm.generate(item.id) },
                 enabled = idle && state.modelPath != null,
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text(if (item.description.isBlank()) "Write description" else "Rewrite description") }
-            if (state.modelPath == null) {
+            ) { Text("Write description") }
+            if (state.modelPath == null && item.description.isBlank()) {
                 Text(
                     "Add the AI model in Settings to write descriptions.",
                     style = MaterialTheme.typography.bodySmall,
@@ -428,14 +435,6 @@ private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () 
                 modifier = Modifier.fillMaxWidth(),
             )
             OutlinedTextField(
-                value = item.price,
-                onValueChange = { v -> vm.updateItem(item.id) { it.copy(price = v) } },
-                label = { Text("Price") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
                 value = item.description,
                 onValueChange = { v -> vm.updateItem(item.id) { it.copy(description = v) } },
                 label = { Text("Description") },
@@ -443,7 +442,7 @@ private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () 
                 modifier = Modifier.fillMaxWidth(),
             )
             Text(
-                "Copy description adds the condition and your footer from Settings.",
+                "Sharing adds the condition and your footer from Settings.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -453,7 +452,6 @@ private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () 
 
             val missing = listOfNotNull(
                 "title".takeIf { item.title.isBlank() },
-                "price".takeIf { item.price.isBlank() },
                 "description".takeIf { item.description.isBlank() },
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -488,43 +486,6 @@ private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () 
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            Text("Or do it by hand", style = MaterialTheme.typography.labelLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(
-                    onClick = { clipboard.setText(AnnotatedString(item.title)) },
-                    enabled = item.title.isNotBlank(),
-                    modifier = Modifier.weight(1f),
-                ) { Text("Copy title") }
-                OutlinedButton(
-                    onClick = { clipboard.setText(AnnotatedString(item.listingDescription(state.settings))) },
-                    modifier = Modifier.weight(1f),
-                ) { Text("Copy description") }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(
-                    onClick = {
-                        scope.launch {
-                            val saved = withContext(Dispatchers.IO) {
-                                Exporter.deleteExported(context, item.exportedUris)
-                                Exporter.saveToAlbum(context, item)
-                            }
-                            vm.updateItem(item.id) { it.copy(exportedUris = saved.map { u -> u.toString() }) }
-                            Toast.makeText(context, "Saved ${saved.size} photos to Pictures/ListingPrep", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    modifier = Modifier.weight(1f),
-                ) { Text("Save to album") }
-                OutlinedButton(
-                    onClick = {
-                        scope.launch {
-                            val intent = withContext(Dispatchers.IO) { Exporter.shareIntent(context, item) }
-                            if (intent != null) context.startActivity(intent)
-                            else Toast.makeText(context, "Couldn't read the photos", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    modifier = Modifier.weight(1f),
-                ) { Text("Share photos") }
-            }
             Button(
                 onClick = {
                     if (item.status == Status.POSTED) vm.updateItem(item.id) { it.copy(status = Status.READY) }

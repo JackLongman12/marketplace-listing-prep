@@ -17,7 +17,6 @@ data class Item(
     val photos: List<Photo>,
     val title: String = "",
     val description: String = "",
-    val price: String = "",
     val condition: String = "Good",
     val notes: String = "",
     val status: Status = Status.DRAFT,
@@ -30,7 +29,7 @@ data class Item(
 
 /** Everything Facebook needs is filled in and a human has signed off. */
 fun Item.readyToShare(): Boolean =
-    checked && photos.isNotEmpty() && title.isNotBlank() && price.isNotBlank() && description.isNotBlank()
+    checked && photos.isNotEmpty() && title.isNotBlank() && description.isNotBlank()
 
 data class Settings(
     val footer: String = "Pickup only. Cash or bank transfer. No holds.",

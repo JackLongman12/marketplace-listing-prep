@@ -47,6 +47,7 @@ class ModelDownloadService : Service() {
     private var job: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var lastNotify = 0L
+    private var lastPublish = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -154,8 +155,12 @@ class ModelDownloadService : Service() {
         val text = if (downloaded != null) {
             "$label ${"%.1f / %.1f GB".format(downloaded / 1e9, ModelDownloader.SIZE_BYTES / 1e9)}"
         } else label
-        _state.value = DownloadState.Running(text, fraction)
         val now = System.currentTimeMillis()
+        // Throttled: updating on every 256 KB chunk redrew the whole UI hundreds of times a second.
+        if (force || now - lastPublish > 400) {
+            lastPublish = now
+            _state.value = DownloadState.Running(text, fraction)
+        }
         if (force || now - lastNotify > 1_000) {
             lastNotify = now
             goForeground(text, fraction)

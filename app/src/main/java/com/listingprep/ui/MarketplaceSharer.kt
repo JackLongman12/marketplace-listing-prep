@@ -42,7 +42,7 @@ fun rememberMarketplaceSharer(vm: AppViewModel, settings: Settings): (Item) -> U
             text = {
                 Text(
                     "While you post, Listing Prep shows a small floating panel over Facebook with " +
-                        "Copy title / price / description buttons. Turn on \"Display over other apps\" " +
+                        "Copy title / description buttons. Turn on \"Display over other apps\" " +
                         "for Listing Prep, come back, and tap Share again."
                 )
             },
@@ -59,7 +59,7 @@ fun rememberMarketplaceSharer(vm: AppViewModel, settings: Settings): (Item) -> U
     return remember(vm) {
         { item: Item ->
             if (!item.readyToShare()) {
-                Toast.makeText(context, "Check the item and fill in title, price and description first.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Check the item and fill in the title and description first.", Toast.LENGTH_SHORT).show()
             } else if (!MarketplaceShare.canShowPanel(context)) {
                 askPermission = true
             } else {

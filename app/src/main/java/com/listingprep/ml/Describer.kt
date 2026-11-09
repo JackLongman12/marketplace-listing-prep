@@ -123,23 +123,36 @@ class Describer(private val context: Context) : Closeable {
 }
 
 /**
- * Where the Gemma model file lives: the app's own external folder, which Android deletes
- * on uninstall. Only a file that passed the official SHA-256 check is ever returned by
- * [find]; a file copied in over USB must pass [verifyCandidates] (Settings → Rescan) first.
+ * Where the Gemma model file lives: the app's private internal storage. Installing a new
+ * build over the old one keeps it, and so does uninstalling with Android's "Keep app data"
+ * box ticked (see android:hasFragileUserData in the manifest). Only a file that passed the
+ * official SHA-256 check is ever returned by [find].
  */
 object ModelFiles {
-    fun dir(context: Context): File = context.getExternalFilesDir(null) ?: context.filesDir
+    fun dir(context: Context): File = File(context.filesDir, "model").apply { mkdirs() }
+
+    /** Older builds kept the model here (deleted on every uninstall). Still read, and moved. */
+    fun legacyDir(context: Context): File? = context.getExternalFilesDir(null)
 
     /** Internal (private) record of the verified file: path, size and modified time. */
     private fun marker(context: Context) = File(context.filesDir, "model.verified")
 
     private fun fingerprint(f: File) = "${f.absolutePath}|${f.length()}|${f.lastModified()}"
 
+    private fun allDirs(context: Context) = listOfNotNull(dir(context), legacyDir(context), context.filesDir).distinct()
+
     fun candidates(context: Context): List<File> =
-        listOf(dir(context), context.filesDir).distinct()
+        allDirs(context)
             .flatMap { it.listFiles()?.toList().orEmpty() }
             .filter { it.isFile && it.name.endsWith(".task") && it.length() > 100_000_000 }
             .sortedByDescending { it.lastModified() }
+
+    /** Deletes every model file except [keep]. */
+    fun deleteOthers(context: Context, keep: File?) {
+        allDirs(context).flatMap { it.listFiles()?.toList().orEmpty() }
+            .filter { it.isFile && it.name.endsWith(".task") && it.absolutePath != keep?.absolutePath }
+            .forEach { it.delete() }
+    }
 
     fun markVerified(context: Context, f: File) = marker(context).writeText(fingerprint(f))
 

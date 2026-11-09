@@ -53,7 +53,6 @@ class Store(context: Context) {
         put("id", id)
         put("title", title)
         put("description", description)
-        put("price", price)
         put("condition", condition)
         put("notes", notes)
         put("status", status.name)
@@ -81,7 +80,6 @@ class Store(context: Context) {
             },
             title = optString("title"),
             description = optString("description"),
-            price = optString("price"),
             condition = optString("condition", "Good"),
             notes = optString("notes"),
             status = runCatching { Status.valueOf(optString("status")) }.getOrDefault(Status.DRAFT),

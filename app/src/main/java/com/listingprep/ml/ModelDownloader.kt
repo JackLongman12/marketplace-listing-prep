@@ -163,10 +163,11 @@ object ModelDownloader {
             !part.exists() || part.length() != SIZE_BYTES -> Finish.INCOMPLETE
             !isOfficialModel(part) -> Finish.BAD_CHECKSUM
             else -> {
-                dir.listFiles()?.filter { it.name.endsWith(".task") }?.forEach { it.delete() }
                 val installed = File(dir, FILE_NAME)
+                installed.delete()
                 if (part.renameTo(installed)) {
                     ModelFiles.markVerified(context, installed)
+                    ModelFiles.deleteOthers(context, installed)
                     Finish.OK
                 } else Finish.INCOMPLETE
             }

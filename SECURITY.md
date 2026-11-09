@@ -24,7 +24,11 @@ Please report security issues privately through GitHub:
 - **No backups.** App data is excluded from cloud backup and device-to-device transfer.
 - **Recents.** The app hides its content from the Recents switcher.
 - **Clipboard.** Text copied by the posting panel is cleared when the panel closes.
-- **Clean uninstall.** Uninstalling removes items, the model, the token and its key. Photo
+- **Camera photos.** Kept in the app's private storage, never added to the gallery, no
+  location recorded. Deleted with their item.
+- **Uninstall.** Android asks whether to keep app data. Unticked (default), uninstalling
+  removes items, camera photos, the model, the token and its key. Ticked, they stay for the
+  next install of this app (same signing key only). Photo
   copies in `Pictures/ListingPrep` are deleted when an item is posted or deleted; Settings →
   Privacy → *Erase everything* removes all remaining app data before you uninstall.
 

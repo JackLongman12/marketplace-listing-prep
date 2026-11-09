@@ -1,16 +1,12 @@
 package com.listingprep.media
 
-import android.content.ClipData
 import android.content.ContentResolver
 import android.content.ContentValues
 import android.content.Context
-import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.provider.MediaStore
-import androidx.core.content.FileProvider
 import com.listingprep.data.Item
-import java.io.File
 import java.io.OutputStream
 
 /**
@@ -90,29 +86,6 @@ object Exporter {
                 deleted += runCatching { cr.delete(uri, null, null) }.getOrDefault(0)
             }
         }
-        File(context.cacheDir, "share").deleteRecursively()
         return deleted
-    }
-
-    /** Builds a share-sheet intent with clean copies of the photos (cover first). */
-    fun shareIntent(context: Context, item: Item): Intent? {
-        val cr = context.contentResolver
-        val dir = File(context.cacheDir, "share").apply { deleteRecursively(); mkdirs() }
-        val uris = ArrayList<Uri>()
-        item.photos.forEachIndexed { i, p ->
-            val f = File(dir, "photo_${i + 1}.jpg")
-            val ok = f.outputStream().use { writeCleanJpeg(cr, Uri.parse(p.uri), it) }
-            if (ok) uris += FileProvider.getUriForFile(context, "${context.packageName}.files", f) else f.delete()
-        }
-        if (uris.isEmpty()) return null
-        val send = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
-            type = "image/jpeg"
-            putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
-            clipData = ClipData.newUri(cr, "photos", uris[0]).also { cd ->
-                uris.drop(1).forEach { cd.addItem(ClipData.Item(it)) }
-            }
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        return Intent.createChooser(send, "Share photos")
     }
 }

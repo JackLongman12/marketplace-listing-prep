@@ -145,8 +145,10 @@ fun PrivacySection(state: UiState, vm: AppViewModel) {
         "Photos, items and AI processing stay on this phone. The app may only connect to " +
             "huggingface.co (to start the model download); every other connection, including " +
             "library telemetry, is blocked. Shared photos are re-saved without location or camera data.\n\n" +
-            "Uninstalling removes the model, your items and the token. Android keeps photo copies in " +
-            "Pictures/ListingPrep after uninstall, so delete them first if you're removing the app.",
+            "Installing a new build over this one keeps everything, including the AI model. When you " +
+            "uninstall, Android asks whether to keep app data: tick it to keep the model for the next " +
+            "install, leave it unticked to remove the model, items and token. Android keeps photo copies " +
+            "in Pictures/ListingPrep after uninstall, so delete them first if you're removing the app.",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )

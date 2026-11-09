@@ -81,10 +81,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             store.modelDownloadId = -1
         }
         watchDownload()
-        // Temporary share-sheet copies only need to live while the target app reads them.
+        moveModelToKeptStorage()
+        // Leftover from builds that had a "Share photos" button.
         viewModelScope.launch(Dispatchers.IO) {
-            val cutoff = System.currentTimeMillis() - 60 * 60 * 1000L
-            File(app.cacheDir, "share").listFiles()?.filter { it.lastModified() < cutoff }?.forEach { it.delete() }
+            File(app.cacheDir, "share").deleteRecursively()
+            // Half-finished download from build 15, which saved to the old folder.
+            ModelFiles.legacyDir(app)?.listFiles()?.filter { it.name.endsWith(".download") }?.forEach { it.delete() }
         }
     }
 
@@ -109,13 +111,40 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Gives back the long-term read access the photo picker granted for these photos. */
+    /**
+     * Lets go of photos no item uses any more: in-app camera shots are deleted, and gallery
+     * photos get their long-term read access (granted by the picker) handed back.
+     */
     private fun releasePhotoAccess(uris: List<String>) {
+        val ownDir = cameraPhotoDir(ctx).canonicalPath
         uris.forEach {
-            runCatching {
-                ctx.contentResolver.releasePersistableUriPermission(Uri.parse(it), Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            val uri = Uri.parse(it)
+            if (uri.scheme == "file") {
+                val f = File(uri.path ?: return@forEach)
+                if (f.canonicalPath.startsWith(ownDir)) f.delete()
+            } else runCatching {
+                ctx.contentResolver.releasePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
         }
+    }
+
+    private fun releaseUnused(uris: List<String>) {
+        val used = _state.value.items.flatMap { it.photos }.map { it.uri }.toSet()
+        val gone = uris.filterNot { it in used }
+        if (gone.isNotEmpty()) viewModelScope.launch(Dispatchers.IO) { releasePhotoAccess(gone) }
+    }
+
+    /** Photos from the in-app camera, already grouped by item (one group per "Next item"). */
+    fun addCameraItems(groups: List<List<File>>) {
+        if (groups.isEmpty()) return
+        val condition = _state.value.settings.defaultCondition
+        val newItems = groups.map { files ->
+            Item(
+                photos = files.map { Photo(Uri.fromFile(it).toString(), it.lastModified(), 0.0) },
+                condition = condition,
+            )
+        }
+        setItems { it + newItems }
     }
 
     fun setCover(id: String, index: Int) = updateItem(id) { item ->
@@ -123,11 +152,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         item.copy(photos = listOf(p) + item.photos.filterIndexed { i, _ -> i != index })
     }
 
-    fun removePhoto(id: String, index: Int) = setItems { items ->
-        items.mapNotNull { item ->
-            if (item.id != id) item
-            else item.copy(photos = item.photos.filterIndexed { i, _ -> i != index }).takeIf { it.photos.isNotEmpty() }
+    fun removePhoto(id: String, index: Int) {
+        val uri = _state.value.items.find { it.id == id }?.photos?.getOrNull(index)?.uri ?: return
+        setItems { items ->
+            items.mapNotNull { item ->
+                if (item.id != id) item
+                else item.copy(photos = item.photos.filterIndexed { i, _ -> i != index }).takeIf { it.photos.isNotEmpty() }
+            }
         }
+        releaseUnused(listOf(uri))
     }
 
     fun movePhoto(id: String, index: Int, target: MoveTarget) = setItems { items ->
@@ -274,6 +307,44 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---- model file -------------------------------------------------------
 
+    /**
+     * One-time move of a model from older builds' external folder (always wiped on uninstall)
+     * into internal storage, which can survive an uninstall with "Keep app data".
+     */
+    private fun moveModelToKeptStorage() {
+        val current = ModelFiles.find(ctx) ?: return
+        val target = File(ModelFiles.dir(ctx), ModelDownloader.FILE_NAME)
+        if (current.parentFile == ModelFiles.dir(ctx)) return
+        if (ModelDownloader.freeBytes(ctx) < current.length() + 200_000_000L) return // try again another day
+        work("Moving AI model so it can survive updates…") {
+            withContext(Dispatchers.IO) {
+                val tmp = File(ModelFiles.dir(ctx), "move.part")
+                if (!current.renameTo(target)) {
+                    current.inputStream().use { input ->
+                        tmp.outputStream().use { out ->
+                            val buf = ByteArray(1 shl 20)
+                            var copied = 0L
+                            while (true) {
+                                val n = input.read(buf)
+                                if (n < 0) break
+                                out.write(buf, 0, n)
+                                copied += n
+                                if (copied % (256L shl 20) < buf.size) progress("Moving AI model… ${"%.1f".format(copied / 1e9)} GB", copied.toFloat() / current.length())
+                            }
+                        }
+                    }
+                    if (tmp.length() != current.length() || !tmp.renameTo(target)) {
+                        tmp.delete()
+                        return@withContext
+                    }
+                }
+                ModelFiles.markVerified(ctx, target)
+                ModelFiles.deleteOthers(ctx, target)
+            }
+            refreshModelPath()
+        }
+    }
+
     /** Re-reads the model folder without hashing; only files already verified count. */
     private fun refreshModelPath() {
         describer.close()
@@ -333,10 +404,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 )
             }
             describer.close()
-            dir.listFiles()?.filter { it.name.endsWith(".task") }?.forEach { it.delete() }
             val installed = File(dir, ModelDownloader.FILE_NAME)
+            installed.delete()
             if (!part.renameTo(installed)) throw IllegalStateException("Couldn't move the model into place.")
             ModelFiles.markVerified(ctx, installed)
+            ModelFiles.deleteOthers(ctx, installed)
         }
         refreshModelPath()
         // The 4.4 GB original is still in Downloads; offer to remove it.
@@ -376,7 +448,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             ctx.contentResolver.persistedUriPermissions.forEach {
                 runCatching { ctx.contentResolver.releasePersistableUriPermission(it.uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
             }
-            listOf(ModelFiles.dir(ctx), ctx.filesDir, ctx.cacheDir, ctx.noBackupFilesDir, ctx.externalCacheDir)
+            listOf(ModelFiles.dir(ctx), ModelFiles.legacyDir(ctx), ctx.filesDir, ctx.cacheDir, ctx.noBackupFilesDir, ctx.externalCacheDir)
                 .filterNotNull()
                 .forEach { dir -> dir.listFiles()?.forEach { it.deleteRecursively() } }
             // Bundled libraries (ML Kit, MediaPipe) keep their own databases and prefs.
