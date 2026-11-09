@@ -61,17 +61,13 @@ class Store(context: Context) {
             }.apply()
         }
 
-    /** eBay developer keys for the price search, encrypted with the Keystore key. */
-    var ebayKeys: Pair<String, String>?
-        get() {
-            val id = prefs.getString("ebayIdEnc", null)?.let(TokenVault::decrypt) ?: return null
-            val secret = prefs.getString("ebaySecretEnc", null)?.let(TokenVault::decrypt) ?: return null
-            return id to secret
-        }
+    /** Gemini API key for the price search, encrypted with the Keystore key. */
+    var geminiKey: String?
+        get() = prefs.getString("geminiKeyEnc", null)?.let(TokenVault::decrypt)
         set(v) {
             prefs.edit().apply {
-                if (v == null) { remove("ebayIdEnc"); remove("ebaySecretEnc") }
-                else { putString("ebayIdEnc", TokenVault.encrypt(v.first)); putString("ebaySecretEnc", TokenVault.encrypt(v.second)) }
+                remove("ebayIdEnc"); remove("ebaySecretEnc") // from build 22
+                if (v.isNullOrBlank()) remove("geminiKeyEnc") else putString("geminiKeyEnc", TokenVault.encrypt(v.trim()))
             }.apply()
         }
 

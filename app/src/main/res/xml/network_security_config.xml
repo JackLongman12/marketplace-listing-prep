@@ -7,7 +7,8 @@
   link) and its CDN hosts under hf.co / huggingface.co (no token is sent there).
   Barcode lookup (only when the AI can't identify an item, can be turned off in Settings):
   api.upcitemdb.com, world.openfoodfacts.org and openlibrary.org receive the barcode number only.
-  Price search (only when you tap it, with your own eBay keys): api.ebay.com, item title only.
+  Price search (only when you tap it, with your own key): generativelanguage.googleapis.com,
+  item title, condition and your location only.
   App updates: api.github.com, github.com and GitHub's download hosts (release files only).
   Plain HTTP is disabled everywhere.
 -->
@@ -27,7 +28,7 @@
         <domain includeSubdomains="false">world.openfoodfacts.org</domain>
         <domain includeSubdomains="false">openlibrary.org</domain>
         <domain includeSubdomains="false">api.github.com</domain>
-        <domain includeSubdomains="false">api.ebay.com</domain>
+        <domain includeSubdomains="false">generativelanguage.googleapis.com</domain>
         <domain includeSubdomains="false">github.com</domain>
         <domain includeSubdomains="false">objects.githubusercontent.com</domain>
         <domain includeSubdomains="false">release-assets.githubusercontent.com</domain>

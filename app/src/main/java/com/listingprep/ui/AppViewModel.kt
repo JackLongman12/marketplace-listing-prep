@@ -37,6 +37,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import android.graphics.Bitmap
@@ -75,12 +78,12 @@ data class UiState(
     /** Pop-up for a manual "Check for updates": open, and its result text when there's no update to show. */
     val updatePopup: Boolean = false,
     val updateNote: String? = null,
-    val hasEbayKeys: Boolean = false,
+    val hasPriceKey: Boolean = false,
     /** Result of "Find second-hand price" for one item. */
     val priceHint: PriceHint? = null,
 )
 
-data class PriceHint(val itemId: String, val text: String, val value: String?)
+data class PriceHint(val itemId: String, val text: String, val value: String?, val sources: List<String> = emptyList())
 
 data class UpdateUi(val build: Int, val label: String, val progress: Float? = null, val ready: Boolean = false)
 
@@ -103,7 +106,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             settings = store.loadSettings(),
             modelPath = ModelFiles.find(app)?.absolutePath,
             hasHfToken = !store.hfToken.isNullOrBlank(),
-            hasEbayKeys = store.ebayKeys != null,
+            hasPriceKey = !store.geminiKey.isNullOrBlank(),
         )
     )
     val state = _state.asStateFlow()
@@ -459,12 +462,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         var done = 0
         try {
             var failed: String? = null
+            var next: Deferred<Analysis>? = null
             ids.forEachIndexed { i, id ->
-                if (_state.value.items.none { it.id == id }) return@forEachIndexed // deleted meanwhile
+                val ready = next
+                // Start reading the next item's photos now, while the model writes this one.
+                next = ids.getOrNull(i + 1)?.let { nid ->
+                    _state.value.items.find { it.id == nid }?.let { nextItem -> viewModelScope.async { analyze(nextItem) } }
+                }
+                if (_state.value.items.none { it.id == id }) { ready?.cancel(); return@forEachIndexed } // deleted meanwhile
                 progress("Writing description ${i + 1} of ${ids.size}", i.toFloat() / ids.size)
                 WritingService.update(ctx, "Writing description ${i + 1} of ${ids.size}…")
                 try {
-                    generateOne(id)
+                    generateOne(id, ready)
                     done++
                 } catch (e: CancellationException) {
                     if (!currentCoroutineContext().isActive) throw e // Stop pressed
@@ -483,37 +492,38 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    // ---- second-hand price search (eBay Browse API) -----------------------------
+    // ---- second-hand price search (Google AI search) ---------------------------
 
-    fun saveEbayKeys(id: String, secret: String) {
-        store.ebayKeys = if (id.isBlank() || secret.isBlank()) null else id.trim() to secret.trim()
-        PriceLookup.forgetToken()
-        _state.update { it.copy(hasEbayKeys = store.ebayKeys != null) }
+    fun savePriceKey(key: String) {
+        store.geminiKey = key.trim().ifBlank { null }
+        _state.update { it.copy(hasPriceKey = !store.geminiKey.isNullOrBlank()) }
     }
 
-    fun findPrice(id: String) = work("Searching second-hand prices…") {
+    fun findPrice(id: String) = work("Searching second-hand prices with Google…") {
         val item = _state.value.items.find { it.id == id } ?: return@work
-        val keys = store.ebayKeys ?: return@work
+        val key = store.geminiKey ?: return@work
         val settings = _state.value.settings
         val region = Regions.current(settings)
         val result = withContext(Dispatchers.IO) {
-            runCatching { PriceLookup.estimate(keys.first, keys.second, item.title, region.code) }
+            runCatching { PriceLookup.estimate(key, item.title, item.condition, Regions.describe(settings), region.currency) }
         }
         val hint = result.fold(
             onSuccess = { e ->
-                if (e == null) PriceHint(id, "Not enough similar used listings found. Try a simpler title (brand + model).", null)
+                val p = e.price
+                if (p == null) PriceHint(id, e.summary.ifBlank { "Google couldn't find reliable second-hand prices for this. Try brand + model in the title." }, null, e.sources)
                 else {
-                    val other = e.currency != region.currency
-                    val text = "Typical used price: ${e.currency} ${PriceLookup.round(e.median)} " +
-                        "(middle half ${PriceLookup.round(e.low)}–${PriceLookup.round(e.high)}, ${e.count} listings on eBay ${e.site})." +
-                        if (other) " eBay has no ${region.name} site, so this is in ${e.currency}." else ""
-                    PriceHint(id, text, if (other) null else PriceLookup.round(e.median))
+                    val cur = e.currency ?: region.currency
+                    val range = if (e.low != null && e.high != null) " (usually ${PriceLookup.round(e.low)}–${PriceLookup.round(e.high)})" else ""
+                    val other = region.currency.isNotBlank() && cur != region.currency
+                    val text = "Typical used price: $cur ${PriceLookup.round(p)}$range.\n${e.summary}" +
+                        if (other) "\nNote: the prices found are in $cur, not ${region.currency}." else ""
+                    PriceHint(id, text, if (other) null else PriceLookup.round(p), e.sources)
                 }
             },
             onFailure = { e ->
                 PriceHint(
                     id,
-                    if (e is PriceLookup.BadKeys) "eBay didn't accept your keys. Check them in Settings → Price search."
+                    if (e is PriceLookup.BadKey) "Google didn't accept the API key. Check it in Settings → Price search."
                     else "Price search failed: ${e.message}",
                     null,
                 )
@@ -567,26 +577,72 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             updateItem(id) { it.copy(title = "", description = "", status = if (it.isActive) Status.DRAFT else it.status, checked = false) }
         }
 
-    private suspend fun generateOne(id: String) {
+    /** What the photos say, worked out before the model runs (text, codes, the cover for the AI). */
+    private class Analysis(val ocr: String, val codes: List<String>, val cover: Bitmap?)
+
+    /**
+     * Each photo is decoded once and read for text and codes, three at a time. Runs on the CPU,
+     * so for a batch it overlaps with the model writing the previous item on the GPU.
+     */
+    private suspend fun analyze(item: Item): Analysis = withContext(Dispatchers.Default) {
+        val cr = ctx.contentResolver
+        val ocr = Ocr.client()
+        val scanner = Codes.scanner()
+        try {
+            val gate = Semaphore(3)
+            val parts = item.photos.take(12).mapIndexed { i, p ->
+                async {
+                    gate.withPermit {
+                        val bmp = runCatching { MediaInfo.decode(cr, Uri.parse(p.uri), 1600) }.getOrNull() ?: return@withPermit null
+                        val codes = Codes.foundIn(scanner, bmp)
+                        val text = if (i < 6) Ocr.linesIn(ocr, bmp) else emptyList()
+                        val cover = if (i == 0) {
+                            val s = 768f / maxOf(bmp.width, bmp.height)
+                            if (s < 1f) Bitmap.createScaledBitmap(bmp, (bmp.width * s).toInt(), (bmp.height * s).toInt(), true) else bmp.copy(bmp.config ?: Bitmap.Config.ARGB_8888, false)
+                        } else null
+                        bmp.recycle()
+                        Triple(text, codes, cover)
+                    }
+                }
+            }.awaitAll()
+            Analysis(
+                ocr = Ocr.clean(parts.flatMap { it?.first.orEmpty() }),
+                codes = parts.flatMap { it?.second.orEmpty() }.distinct().take(8),
+                cover = parts.firstOrNull()?.third,
+            )
+        } finally {
+            ocr.close()
+            scanner.close()
+        }
+    }
+
+    /** Loads the model in the background (e.g. while you're still taking photos) so writing starts at once. */
+    fun warmUp() {
+        val path = _state.value.modelPath ?: return
+        if (describer.isLoaded(path)) return
+        viewModelScope.launch(Dispatchers.Default) {
+            runCatching { describeLock.withLock { describer.ensureLoaded(path) } }
+        }
+    }
+
+    private suspend fun generateOne(id: String, ready: Deferred<Analysis>? = null) {
         val item = _state.value.items.find { it.id == id } ?: return
         val path = _state.value.modelPath
             ?: throw IllegalStateException("No AI model yet. Add one in Settings.")
         _state.update { it.copy(generatingId = id) }
         val label = _state.value.busy
-        val cr = ctx.contentResolver
         val listing = withContext(Dispatchers.Default) {
+            val pending = ready ?: async { analyze(item) } // reads photos while the model loads
             if (!describer.isLoaded(path)) {
                 progress("Loading AI model (first time takes a few seconds)…", null)
-                describer.ensureLoaded(path)
+                describeLock.withLock { describer.ensureLoaded(path) }
                 progress(label ?: "Writing description…", _state.value.progress)
             }
-            val uris = item.photos.map { Uri.parse(it.uri) }
-            val ocrImages = uris.take(4).mapNotNull { runCatching { MediaInfo.decode(cr, it, 1280) }.getOrNull() }
-            val ocrText = Ocr.read(ocrImages)
-            ocrImages.forEach { it.recycle() }
-            val codes = scanCodesIn(uris)
+            val analysis = pending.await()
+            val ocrText = analysis.ocr
+            val codes = analysis.codes
             if (codes != item.codes) updateItem(id) { it.copy(codes = codes) }
-            val llmImages = uris.take(Describer.MAX_IMAGES).mapNotNull { runCatching { MediaInfo.decode(cr, it, 768) }.getOrNull() }
+            val llmImages = listOfNotNull(analysis.cover)
             val style = _state.value.settings.writingStyle
             val place = Regions.describe(_state.value.settings)
             var known = item.copy(codes = codes)
@@ -793,7 +849,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 ?.forEach { it.delete() }
         }
         store.hfToken = null
-        store.ebayKeys = null
+        store.geminiKey = null
         TokenVault.deleteKey()
         setItems { emptyList() } // goes through the same save queue, so no stale write lands after
         store.saveSettings(Settings())

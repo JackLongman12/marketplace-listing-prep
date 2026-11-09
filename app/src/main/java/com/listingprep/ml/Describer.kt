@@ -18,6 +18,22 @@ import java.io.File
 
 /** Reads text (brands, model numbers, labels) from photos. On-device. */
 object Ocr {
+    fun client() = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+
+    suspend fun linesIn(client: com.google.mlkit.vision.text.TextRecognizer, bmp: Bitmap): List<String> =
+        runCatching { client.process(InputImage.fromBitmap(bmp, 0)).await() }
+            .getOrNull()?.textBlocks?.flatMap { b -> b.lines.map { it.text.trim() } }.orEmpty()
+
+    fun clean(lines: List<String>): String = lines
+        .filter { line ->
+            val letters = line.count { it.isLetter() }
+            line.length >= 3 && letters >= 2 && line.count { it.isLetterOrDigit() || it == ' ' } >= line.length * 0.8
+        }
+        .distinctBy { it.lowercase() }
+        .take(20)
+        .joinToString("\n")
+        .take(500)
+
     suspend fun read(images: List<Bitmap>): String {
         val client = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
         try {
@@ -42,6 +58,14 @@ object Ocr {
 
 /** Finds barcodes (EAN/UPC/ISBN, Code 128, …) and QR codes in photos. On-device; no lookup. */
 object Codes {
+    fun scanner() = BarcodeScanning.getClient()
+
+    suspend fun foundIn(scanner: com.google.mlkit.vision.barcode.BarcodeScanner, bmp: Bitmap): List<String> =
+        runCatching { scanner.process(InputImage.fromBitmap(bmp, 0)).await() }.getOrNull().orEmpty().mapNotNull { b ->
+            val value = (b.rawValue ?: b.displayValue)?.trim()?.take(300) ?: return@mapNotNull null
+            if (value.isEmpty()) null else "${formatName(b.format)}: $value"
+        }
+
     suspend fun read(images: List<Bitmap>): List<String> {
         val scanner = BarcodeScanning.getClient()
         try {
@@ -76,9 +100,11 @@ class Describer(private val context: Context) : Closeable {
     private val prefs = context.getSharedPreferences("ai_engine", Context.MODE_PRIVATE)
 
     /** Some phone GPUs make the model print garbage; once seen, the CPU is used from then on. */
+    // Remembered per app build, so a new build (or GPU driver update) gets another try on the fast GPU.
+    private val build = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode }.getOrDefault(0L)
     var cpuOnly: Boolean
-        get() = prefs.getBoolean("cpuOnly", false)
-        private set(v) { prefs.edit().putBoolean("cpuOnly", v).apply() }
+        get() = prefs.getLong("cpuOnlyBuild", -1L) == build
+        private set(v) { prefs.edit().putLong("cpuOnlyBuild", if (v) build else -1L).apply() }
 
     var onGpu = false
         private set
@@ -111,7 +137,8 @@ class Describer(private val context: Context) : Closeable {
             context,
             LlmInference.LlmInferenceOptions.builder()
                 .setModelPath(path)
-                .setMaxTokens(2048)
+                // Prompt + one photo (256 tokens) + answer fit in ~1k; a smaller cache is faster.
+                .setMaxTokens(1280)
                 .setMaxNumImages(MAX_IMAGES)
                 .setPreferredBackend(backend)
                 .build(),
@@ -138,7 +165,8 @@ class Describer(private val context: Context) : Closeable {
     }
 
     companion object {
-        const val MAX_IMAGES = 2
+        /** One photo (the cover): each photo costs the model ~256 tokens; the others are still read for text and codes. */
+        const val MAX_IMAGES = 1
 
         fun prompt(item: Item, ocrText: String, style: String, place: String = ""): String = buildString {
             appendLine("You write Facebook Marketplace listings for used items. Look carefully at the photo(s) first.")

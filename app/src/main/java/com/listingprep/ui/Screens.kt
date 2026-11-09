@@ -127,7 +127,7 @@ fun App(
 
     Box(Modifier.fillMaxSize()) {
     when (val current = screen) {
-        null -> ItemListScreen(state, vm, onOpen = { screen = it }, onSettings = { screen = SETTINGS }, onCamera = { screen = CAMERA })
+        null -> ItemListScreen(state, vm, onOpen = { screen = it }, onSettings = { screen = SETTINGS }, onCamera = { vm.warmUp(); screen = CAMERA })
         CAMERA -> CameraScreen(onFinish = { groups ->
             val ids = vm.addCameraItems(groups)
             if (state.settings.autoWrite &&
@@ -618,13 +618,20 @@ private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () 
             )
             var priceSetup by remember { mutableStateOf(false) }
             TextButton(
-                onClick = { if (state.hasEbayKeys) vm.findPrice(item.id) else priceSetup = true },
+                onClick = { if (state.hasPriceKey) vm.findPrice(item.id) else priceSetup = true },
                 enabled = idle && item.title.isNotBlank(),
             ) { Text("Find typical second-hand price") }
             state.priceHint?.takeIf { it.itemId == item.id }?.let { hint ->
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(hint.text, style = MaterialTheme.typography.bodyMedium)
+                        if (hint.sources.isNotEmpty()) {
+                            Text(
+                                "Sources: " + hint.sources.joinToString(", "),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             hint.value?.let { v ->
                                 Button(onClick = { vm.updateItem(item.id) { it.copy(price = v) }; vm.dismissPriceHint() }) {
@@ -636,7 +643,7 @@ private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () 
                     }
                 }
             }
-            if (priceSetup) EbayKeysDialog(vm, onDone = { ok -> priceSetup = false; if (ok) vm.findPrice(item.id) })
+            if (priceSetup) PriceKeyDialog(vm, onDone = { ok -> priceSetup = false; if (ok) vm.findPrice(item.id) })
             OutlinedTextField(
                 value = item.description,
                 onValueChange = { v -> vm.updateItem(item.id) { it.copy(description = v) } },
@@ -865,16 +872,16 @@ private fun SettingsScreen(state: UiState, vm: AppViewModel, onBack: () -> Unit)
             Text("Price search", style = MaterialTheme.typography.titleMedium)
             var keysDialog by remember { mutableStateOf(false) }
             Text(
-                if (state.hasEbayKeys) "eBay keys saved (encrypted). Only an item's title is sent when you tap Find price."
-                else "Optional: finds typical second-hand prices from used listings on eBay in your country.",
+                if (state.hasPriceKey) "Google AI search is set up (key stored encrypted). Sends an item's title, condition and your location when you tap Find price."
+                else "Optional: Google's AI search looks up what an item sells for second-hand where you live.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { keysDialog = true }) { Text(if (state.hasEbayKeys) "Change eBay keys" else "Set up price search") }
-                if (state.hasEbayKeys) TextButton(onClick = { vm.saveEbayKeys("", "") }) { Text("Remove keys") }
+                OutlinedButton(onClick = { keysDialog = true }) { Text(if (state.hasPriceKey) "Change API key" else "Set up price search") }
+                if (state.hasPriceKey) TextButton(onClick = { vm.savePriceKey("") }) { Text("Remove key") }
             }
-            if (keysDialog) EbayKeysDialog(vm, onDone = { keysDialog = false })
+            if (keysDialog) PriceKeyDialog(vm, onDone = { keysDialog = false })
 
             HorizontalDivider()
             Text("Updates", style = MaterialTheme.typography.titleMedium)
@@ -1002,49 +1009,44 @@ private fun UpdatePopup(state: UiState, vm: AppViewModel) {
     )
 }
 
-/** One-time setup for the price search: the user's own free eBay developer keys. */
+/** One-time setup for the price search: the user's own free Google AI Studio (Gemini) API key. */
 @Composable
-private fun EbayKeysDialog(vm: AppViewModel, onDone: (saved: Boolean) -> Unit) {
+private fun PriceKeyDialog(vm: AppViewModel, onDone: (saved: Boolean) -> Unit) {
     val context = LocalContext.current
-    // Plain remember: rememberSaveable would copy the secret into saved instance state.
-    var id by remember { mutableStateOf("") }
-    var secret by remember { mutableStateOf("") }
+    // Plain remember: rememberSaveable would copy the key into saved instance state.
+    var key by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = { onDone(false) },
         title = { Text("Price search setup") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    "Prices come from used listings on eBay through eBay's official API, which needs free keys:\n" +
-                        "1. Sign up at developer.ebay.com.\n" +
-                        "2. Create a Production keyset (when asked about account deletion notices, choose the exemption: " +
-                        "this app stores no eBay user data).\n" +
-                        "3. Paste the App ID (Client ID) and Cert ID (Client Secret) here.",
+                    "Prices are looked up with Google's AI search (Gemini with Google Search). It needs a free API key:\n" +
+                        "1. Open Google AI Studio and sign in.\n" +
+                        "2. Tap Create API key.\n" +
+                        "3. Paste it here.",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 OutlinedButton(onClick = {
-                    context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse("https://developer.ebay.com/my/keys")))
-                }) { Text("Open eBay developer keys") }
+                    context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse("https://aistudio.google.com/apikey")))
+                }) { Text("Open Google AI Studio") }
                 OutlinedTextField(
-                    value = id, onValueChange = { id = it.trim() }, singleLine = true,
-                    label = { Text("App ID (Client ID)") }, modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = secret, onValueChange = { secret = it.trim() }, singleLine = true,
-                    label = { Text("Cert ID (Client Secret)") },
+                    value = key, onValueChange = { key = it.trim() }, singleLine = true,
+                    label = { Text("API key") },
                     visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Text(
-                    "Stored encrypted on this phone, sent only to api.ebay.com. Searches send just the item title.",
+                    "Stored encrypted on this phone and sent only to Google's Gemini API. A search sends the item's title, " +
+                        "condition and your location (no photos). On Google's free tier, Google may use requests to improve its products.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         },
         confirmButton = {
-            TextButton(onClick = { vm.saveEbayKeys(id, secret); onDone(true) }, enabled = id.length > 8 && secret.length > 8) { Text("Save") }
+            TextButton(onClick = { vm.savePriceKey(key); onDone(true) }, enabled = key.length > 20) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = { onDone(false) }) { Text("Cancel") } },
     )
