@@ -89,11 +89,14 @@ jobs:
 
       # "What's new": every commit since the previous release, without trailer lines.
       - name: Write release notes
+        id: notes
         if: steps.key.outputs.present == 'true'
         run: |
           PREV=$(git tag --list 'build-*' --sort=-v:refname | head -1)
           RANGE=${PREV:+$PREV..}HEAD
           CHANGES=$(git log "$RANGE" --no-merges --format=%h -- app | wc -l)
+          # No app changes since the last release: compile-check only, don't offer an identical "update".
+          echo "changed=$([ "$CHANGES" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
           {
             echo "## What's new"
             if [ "$CHANGES" -eq 0 ]; then echo; echo "Maintenance build: nothing in the app changed."; fi
@@ -107,7 +110,7 @@ jobs:
           cat release-notes.md >> "$GITHUB_STEP_SUMMARY"
 
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
-        if: steps.key.outputs.present == 'true'
+        if: steps.key.outputs.present == 'true' && steps.notes.outputs.changed == 'true'
         with:
           tag_name: build-${{ github.run_number }}
           name: Listing Prep build ${{ github.run_number }}
