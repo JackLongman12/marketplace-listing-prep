@@ -25,6 +25,8 @@ data class Item(
     val photos: List<Photo>,
     val title: String = "",
     val description: String = "",
+    /** Asking price as typed, without currency (the region in Settings sets the currency). */
+    val price: String = "",
     val condition: String = "Good",
     val notes: String = "",
     val status: Status = Status.DRAFT,
@@ -41,7 +43,7 @@ data class Item(
 
 /** Everything Facebook needs is filled in and a human has signed off. */
 fun Item.readyToShare(): Boolean =
-    checked && photos.isNotEmpty() && title.isNotBlank() && description.isNotBlank()
+    checked && photos.isNotEmpty() && title.isNotBlank() && price.isNotBlank() && description.isNotBlank()
 
 data class Settings(
     val footer: String = "Pickup only. Cash or bank transfer. No holds.",
@@ -54,6 +56,13 @@ data class Settings(
     val autoWrite: Boolean = true,
     /** Download new builds from GitHub and install them when you leave the app. */
     val autoUpdate: Boolean = true,
+    /** ISO region code (e.g. "HK" for Hong Kong SAR); blank = the phone's region. */
+    val region: String = "",
+    /** State / province code (ISO 3166-2) and its readable name path, e.g. "Scotland, Aberdeen City". */
+    val area: String = "",
+    val areaName: String = "",
+    /** Optional city or district, used for wording and price context. */
+    val city: String = "",
 )
 
 /** Full description text as it should be pasted into Facebook. */

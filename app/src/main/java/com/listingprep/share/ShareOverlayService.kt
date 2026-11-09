@@ -59,6 +59,7 @@ class ShareOverlayService : Service() {
         showPanel(
             id = intent.getStringExtra(EXTRA_ID).orEmpty(),
             title = intent.getStringExtra(EXTRA_TITLE).orEmpty(),
+            price = intent.getStringExtra(EXTRA_PRICE).orEmpty(),
             description = intent.getStringExtra(EXTRA_DESCRIPTION).orEmpty(),
         )
         return START_NOT_STICKY
@@ -100,7 +101,7 @@ class ShareOverlayService : Service() {
     }
 
     @SuppressLint("ClickableViewAccessibility", "SetTextI18n")
-    private fun showPanel(id: String, title: String, description: String) {
+    private fun showPanel(id: String, title: String, price: String, description: String) {
         removePanel()
         val ctx = ContextThemeWrapper(this, android.R.style.Theme_DeviceDefault)
 
@@ -153,6 +154,7 @@ class ShareOverlayService : Service() {
             addView(status)
             addView(row(
                 button("Title") { copy("Title", title) },
+                button("Price") { copy("Price", price) },
                 button("Description") { copy("Description", description) },
             ))
             addView(row(
@@ -218,11 +220,12 @@ class ShareOverlayService : Service() {
     companion object {
         const val EXTRA_ID = "id"
         const val EXTRA_TITLE = "title"
+        const val EXTRA_PRICE = "price"
         const val EXTRA_DESCRIPTION = "description"
         private const val ACTION_CLOSE = "com.listingprep.CLOSE_PANEL"
         private const val CHANNEL = "posting_helper"
         private const val NOTIFICATION_ID = 1
         /** Clip labels this app uses; anything else on the clipboard is left alone. */
-        val OUR_CLIP_LABELS = setOf("Title", "Description")
+        val OUR_CLIP_LABELS = setOf("Title", "Price", "Description")
     }
 }

@@ -36,3 +36,7 @@ Photos, items and AI processing stay on the phone. The app can only connect to h
 ## Build from source
 
 GitHub Actions builds and signs every push to `main` (see `.github/workflows/build.yml`). To build locally, open the project in Android Studio, or run `gradle assembleDebug` with JDK 17 and the Android SDK.
+
+## Credits
+
+State / province names come from the ISO 3166-2 data of Debian's [iso-codes](https://salsa.debian.org/iso-codes-team/iso-codes) project (LGPL-2.1), bundled as `app/src/main/assets/subdivisions.json`.

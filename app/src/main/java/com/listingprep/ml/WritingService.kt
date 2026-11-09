@@ -23,6 +23,10 @@ class WritingService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_STOP) {
+            stopRequests.value++
+            return START_NOT_STICKY
+        }
         startForeground(
             PROGRESS_ID,
             notification(this, intent?.getStringExtra(EXTRA_TEXT) ?: "Writing descriptions…", ongoing = true),
@@ -39,6 +43,10 @@ class WritingService : Service() {
         private const val PROGRESS_ID = 3
         private const val DONE_ID = 4
         private const val EXTRA_TEXT = "text"
+        private const val ACTION_STOP = "com.listingprep.STOP_WRITING"
+
+        /** Bumped when "Stop" is tapped in the notification; the view model listens. */
+        val stopRequests = kotlinx.coroutines.flow.MutableStateFlow(0)
 
         private fun notification(context: Context, text: String, ongoing: Boolean): Notification {
             val nm = context.getSystemService(NotificationManager::class.java)
@@ -55,7 +63,15 @@ class WritingService : Service() {
                 .setAutoCancel(!ongoing)
                 .setOnlyAlertOnce(true)
                 .setContentIntent(open)
-                .apply { if (ongoing) setProgress(0, 0, true) }
+                .apply {
+                    if (ongoing) {
+                        setProgress(0, 0, true)
+                        val stop = PendingIntent.getService(
+                            context, 6, Intent(context, WritingService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE,
+                        )
+                        addAction(Notification.Action.Builder(null as android.graphics.drawable.Icon?, "Stop", stop).build())
+                    }
+                }
                 .build()
         }
 

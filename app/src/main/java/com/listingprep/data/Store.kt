@@ -31,6 +31,10 @@ class Store(context: Context) {
         onlineLookup = prefs.getBoolean("onlineLookup", true),
         autoWrite = prefs.getBoolean("autoWrite", true),
         autoUpdate = prefs.getBoolean("autoUpdate", true),
+        region = prefs.getString("region", null) ?: "",
+        city = prefs.getString("city", null) ?: "",
+        area = prefs.getString("area", null) ?: "",
+        areaName = prefs.getString("areaName", null) ?: "",
     )
 
     fun saveSettings(s: Settings) {
@@ -41,6 +45,10 @@ class Store(context: Context) {
             .putBoolean("onlineLookup", s.onlineLookup)
             .putBoolean("autoWrite", s.autoWrite)
             .putBoolean("autoUpdate", s.autoUpdate)
+            .putString("region", s.region)
+            .putString("city", s.city)
+            .putString("area", s.area)
+            .putString("areaName", s.areaName)
             .apply()
     }
 
@@ -65,6 +73,7 @@ class Store(context: Context) {
         put("id", id)
         put("title", title)
         put("description", description)
+        put("price", price)
         put("condition", condition)
         put("notes", notes)
         put("status", status.name)
@@ -95,6 +104,7 @@ class Store(context: Context) {
             },
             title = optString("title"),
             description = optString("description"),
+            price = optString("price"),
             condition = optString("condition", "Good"),
             notes = optString("notes"),
             status = runCatching { Status.valueOf(optString("status")) }.getOrDefault(Status.DRAFT),

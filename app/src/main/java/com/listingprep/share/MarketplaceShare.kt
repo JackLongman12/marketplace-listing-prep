@@ -37,11 +37,16 @@ object MarketplaceShare {
         }
     }
 
+    /** Marketplace's price box takes a plain number. */
+    fun priceForFacebook(price: String): String =
+        price.filter { it.isDigit() || it == '.' }.ifBlank { price }
+
     fun startPanel(context: Context, item: Item, description: String) {
         context.startForegroundService(
             Intent(context, ShareOverlayService::class.java)
                 .putExtra(ShareOverlayService.EXTRA_ID, item.id)
                 .putExtra(ShareOverlayService.EXTRA_TITLE, item.title)
+                .putExtra(ShareOverlayService.EXTRA_PRICE, priceForFacebook(item.price))
                 .putExtra(ShareOverlayService.EXTRA_DESCRIPTION, description)
         )
     }

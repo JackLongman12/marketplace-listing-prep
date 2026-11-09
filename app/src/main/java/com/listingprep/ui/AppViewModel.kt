@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.IntentSender
 import android.provider.MediaStore
 import com.listingprep.data.isActive
+import com.listingprep.data.Regions
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
@@ -33,6 +34,11 @@ import com.listingprep.ml.ProductLookup
 import com.listingprep.data.Photo
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
+import android.graphics.Bitmap
 import kotlinx.coroutines.Job
 import com.listingprep.ml.WritingService
 import com.listingprep.update.UpdateState
@@ -65,6 +71,9 @@ data class UiState(
     val undo: UndoUi? = null,
     /** App update status (checking, downloading, ready to install). */
     val update: UpdateUi? = null,
+    /** Pop-up for a manual "Check for updates": open, and its result text when there's no update to show. */
+    val updatePopup: Boolean = false,
+    val updateNote: String? = null,
 )
 
 data class UpdateUi(val build: Int, val label: String, val progress: Float? = null, val ready: Boolean = false)
@@ -101,6 +110,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         watchDownload()
         moveModelToKeptStorage()
+        viewModelScope.launch { WritingService.stopRequests.collect { if (it > 0) stopWriting() } }
         viewModelScope.launch { UpdateState.error.collect { e -> if (e != null) { showError(e); UpdateState.error.value = null } } }
         if (_state.value.settings.autoUpdate && System.currentTimeMillis() - store.lastUpdateCheck > 6 * 60 * 60 * 1000L) {
             checkForUpdate(manual = false)
@@ -234,6 +244,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             val used = _state.value.items.flatMap { it.photos }.flatMap { it.files() }.toSet()
             releasePhotoAccess(gone.flatMap { it.photos }.flatMap { it.files() }.filterNot { it in used })
         }
+        if (_state.value.generatingId in ids) currentDescribe?.cancel()
         val change = { setItems { items -> items.filterNot { it.id in ids } } }
         if (allowUndo) {
             undoable(if (gone.size == 1) "Item deleted" else "${gone.size} items deleted", ids, cleanup, change)
@@ -427,9 +438,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         setItems { it + newItems }
     }
 
-    fun generate(id: String) = work("Writing description…") { generateOne(id) }
+    fun generate(id: String) { writingJob = work("Writing description…") { generateOne(id) } }
 
-    fun generateAll() = work("Writing descriptions…") {
+    fun generateAll() { writingJob = generateAllJob() }
+
+    private fun generateAllJob() = work("Writing descriptions…") {
         val ids = _state.value.items
             .filter { it.description.isBlank() && it.isActive }
             .map { it.id }
@@ -438,12 +451,23 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         WritingService.start(ctx, "Writing description 1 of ${ids.size}…")
         var done = 0
         try {
+            var failed: String? = null
             ids.forEachIndexed { i, id ->
+                if (_state.value.items.none { it.id == id }) return@forEachIndexed // deleted meanwhile
                 progress("Writing description ${i + 1} of ${ids.size}", i.toFloat() / ids.size)
                 WritingService.update(ctx, "Writing description ${i + 1} of ${ids.size}…")
-                generateOne(id)
-                done++
+                try {
+                    generateOne(id)
+                    done++
+                } catch (e: CancellationException) {
+                    if (!currentCoroutineContext().isActive) throw e // Stop pressed
+                    // Only this item was cancelled (deleted while writing): carry on with the rest.
+                } catch (e: Exception) {
+                    failed = e.message
+                }
+                _state.update { it.copy(generatingId = null) }
             }
+            failed?.let { showError(it) }
         } finally {
             WritingService.finish(
                 ctx,
@@ -451,6 +475,49 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
     }
+
+    // ---- running the model (stoppable) --------------------------------------
+
+    private val describeLock = Mutex()
+    @Volatile private var currentDescribe: Deferred<String>? = null
+    private var writingJob: Job? = null
+
+    /**
+     * Runs the model. Stop and Delete cancel it right away; the native call can't be
+     * interrupted, so it finishes in the background and its answer is thrown away.
+     */
+    private suspend fun describeOnce(images: List<Bitmap>, prompt: String): String {
+        val d = CoroutineScope(Dispatchers.Default).async { describeLock.withLock { describer.describe(images, prompt) } }
+        currentDescribe = d
+        try {
+            return d.await()
+        } finally {
+            if (currentDescribe === d) currentDescribe = null
+        }
+    }
+
+    /** One listing, checked for garbage; retried on the CPU if the GPU produced nonsense. */
+    private suspend fun writeListing(path: String, images: List<Bitmap>, prompt: String) = run {
+        var listing = Describer.parse(describeOnce(images, prompt))
+        if (Describer.looksBroken(listing) && describer.onGpu) {
+            progress("The GPU gave a garbled answer; retrying on the CPU (slower, but reliable)…", _state.value.progress)
+            describeLock.withLock { describer.fallBackToCpu(path) }
+            listing = Describer.parse(describeOnce(images, prompt))
+        }
+        listing.takeUnless { Describer.looksBroken(it) }
+    }
+
+    /** Stops writing descriptions (the one in progress is discarded). */
+    fun stopWriting() {
+        writingJob?.cancel()
+        currentDescribe?.cancel()
+    }
+
+    /** Clears an AI description (and title) so you can write your own or try the AI again. */
+    fun clearDescription(id: String) =
+        undoable("Description deleted", listOf(id)) {
+            updateItem(id) { it.copy(title = "", description = "", status = if (it.isActive) Status.DRAFT else it.status, checked = false) }
+        }
 
     private suspend fun generateOne(id: String) {
         val item = _state.value.items.find { it.id == id } ?: return
@@ -473,22 +540,26 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             if (codes != item.codes) updateItem(id) { it.copy(codes = codes) }
             val llmImages = uris.take(Describer.MAX_IMAGES).mapNotNull { runCatching { MediaInfo.decode(cr, it, 768) }.getOrNull() }
             val style = _state.value.settings.writingStyle
+            val place = Regions.describe(_state.value.settings)
             var known = item.copy(codes = codes)
-            var result = Describer.parse(describer.describe(llmImages, Describer.prompt(known, ocrText, style)))
+            var result = writeListing(path, llmImages, Describer.prompt(known, ocrText, style, place))
             // The AI couldn't tell what it is: look the barcode number up online (if allowed) and try once more.
             val code = ProductLookup.retailCode(codes)
-            if (!result.identified && code != null && known.product.isBlank() && _state.value.settings.onlineLookup) {
+            if (result != null && !result.identified && code != null && known.product.isBlank() && _state.value.settings.onlineLookup) {
                 progress("Looking up the barcode online…", _state.value.progress)
                 val product = withContext(Dispatchers.IO) { runCatching { ProductLookup.lookup(code) }.getOrNull() }
                 if (product != null) {
                     updateItem(id) { it.copy(product = product) }
                     known = known.copy(product = product)
                     progress(label ?: "Writing description…", _state.value.progress)
-                    result = Describer.parse(describer.describe(llmImages, Describer.prompt(known, ocrText, style)))
+                    result = writeListing(path, llmImages, Describer.prompt(known, ocrText, style, place)) ?: result
                 }
             }
             llmImages.forEach { it.recycle() }
-            result
+            result ?: throw IllegalStateException(
+                "The AI's answer didn't make sense, so it wasn't saved. Add a few words in Notes " +
+                    "(what the item is) and tap Write description again."
+            )
         }
         updateItem(id) {
             it.copy(
@@ -569,9 +640,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun rescanModel() = work("Checking model file (checksum)…") {
         withContext(Dispatchers.IO) { ModelFiles.verifyCandidates(ctx) }
         refreshModelPath()
-        if (_state.value.modelPath == null && ModelFiles.candidates(ctx).isNotEmpty()) {
-            showError("The model file in the app folder isn't the official ${ModelDownloader.FILE_NAME} (checksum mismatch), so it won't be used.")
-        }
+        val path = _state.value.modelPath
+        val part = ModelDownloader.partFile(ctx).length()
+        showError(
+            when {
+                path != null -> "AI model found and verified: ${File(path).name}."
+                ModelFiles.candidates(ctx).isNotEmpty() ->
+                    "Found a model file, but it isn't the official ${ModelDownloader.FILE_NAME} (checksum mismatch), so it won't be used."
+                part > 0 -> "No finished model yet. A download is ${"%.1f".format(part / 1e9)} GB along: tap Download to resume it."
+                else -> "No model file on this phone yet. Tap Download, or Import model file to pick a " +
+                    "${ModelDownloader.FILE_NAME} you already have (e.g. in Downloads); it's copied in and checked."
+            }
+        )
     }
 
     fun importModel(uri: Uri) = work("Copying model…") {
@@ -740,17 +820,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun checkForUpdate(manual: Boolean = true) {
         if (updateJob?.isActive == true) return
         updateJob = viewModelScope.launch {
-            if (manual) _state.update { it.copy(update = UpdateUi(0, "Checking for updates…")) }
+            if (manual) _state.update { it.copy(updatePopup = true, updateNote = "Checking for updates…") }
             val release = withContext(Dispatchers.IO) { runCatching { Updater.check(ctx) } }
             store.lastUpdateCheck = System.currentTimeMillis()
             val r = release.getOrElse {
                 _state.update { s -> s.copy(update = null) }
-                if (manual) showError("Couldn't check for updates: ${it.message}")
+                if (manual) _state.update { s -> s.copy(updateNote = "Couldn't check for updates: ${it.message}") }
                 return@launch
             }
             if (r == null) {
                 _state.update { it.copy(update = null) }
-                if (manual) showError("You're on the latest build (${Updater.installedBuild(ctx)}).")
+                if (manual) _state.update { it.copy(updateNote = "You're on the latest build (${Updater.installedBuild(ctx)}).") }
                 return@launch
             }
             _state.update { it.copy(update = UpdateUi(r.build, "Downloading build ${r.build}…", 0f)) }
@@ -764,7 +844,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }.getOrElse {
                 _state.update { s -> s.copy(update = null) }
-                showError("Update not installed: ${it.message}")
+                if (_state.value.updatePopup) _state.update { s -> s.copy(updateNote = "Update not installed: ${it.message}") }
+                else showError("Update not installed: ${it.message}")
                 return@launch
             }
             updateApk = apk
@@ -773,6 +854,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun canInstallUpdates() = Updater.canInstall(ctx)
+
+    fun closeUpdatePopup() = _state.update { it.copy(updatePopup = false, updateNote = null) }
 
     /** Installs now (the app closes and reopens updated). */
     fun installUpdate() {

@@ -49,6 +49,9 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Switch
 import com.listingprep.data.readyToShare
 import com.listingprep.data.isActive
+import com.listingprep.data.Regions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Button
@@ -145,6 +148,7 @@ fun App(
             else ItemScreen(item, state, vm, onBack = { screen = null })
         }
     }
+    if (state.updatePopup) UpdatePopup(state, vm)
     SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 72.dp))
     }
 }
@@ -157,7 +161,12 @@ private fun StatusCards(state: UiState, vm: AppViewModel) {
         state.busy?.let { label ->
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(label, style = MaterialTheme.typography.bodyMedium)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                        if (state.generatingId != null || label.startsWith("Writing")) {
+                            TextButton(onClick = vm::stopWriting) { Text("Stop") }
+                        }
+                    }
                     val p = state.progress
                     if (p != null) {
                         LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth())
@@ -449,7 +458,8 @@ private fun ItemCard(
                 )
                 val count = item.photos.size
                 Text(
-                    "$count photo${if (count == 1) "" else "s"} · ${statusLabel(item)}",
+                    "$count photo${if (count == 1) "" else "s"} · ${statusLabel(item)}" +
+                        (if (item.price.isNotBlank()) " · ${item.price}" else ""),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -596,6 +606,16 @@ private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () 
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
+            val region = remember(state.settings.region) { Regions.current(state.settings) }
+            OutlinedTextField(
+                value = item.price,
+                onValueChange = { v -> vm.updateItem(item.id) { it.copy(price = v.filter { c -> c.isDigit() || c == '.' }.take(10)) } },
+                label = { Text("Price (${region.currency.ifBlank { "local currency" }})") },
+                prefix = { Text(region.symbol) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.fillMaxWidth(),
+            )
             OutlinedTextField(
                 value = item.description,
                 onValueChange = { v -> vm.updateItem(item.id) { it.copy(description = v) } },
@@ -603,6 +623,11 @@ private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () 
                 minLines = 6,
                 modifier = Modifier.fillMaxWidth(),
             )
+            if (item.description.isNotBlank() || item.title.isNotBlank()) {
+                TextButton(onClick = { vm.clearDescription(item.id) }, enabled = state.generatingId != item.id) {
+                    Text("Delete title & description")
+                }
+            }
             Text(
                 "Sharing adds the condition and your footer from Settings.",
                 style = MaterialTheme.typography.bodySmall,
@@ -614,6 +639,7 @@ private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () 
 
             val missing = listOfNotNull(
                 "title".takeIf { item.title.isBlank() },
+                "price".takeIf { item.price.isBlank() },
                 "description".takeIf { item.description.isBlank() },
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -796,6 +822,25 @@ private fun SettingsScreen(state: UiState, vm: AppViewModel, onBack: () -> Unit)
             )
 
             HorizontalDivider()
+            Text("Location", style = MaterialTheme.typography.titleMedium)
+            var picking by remember { mutableStateOf(false) }
+            OutlinedButton(onClick = { picking = true }, modifier = Modifier.fillMaxWidth()) {
+                Text(Regions.describe(state.settings), maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            Text(
+                "Sets the currency for prices and the spelling and units in descriptions.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (picking) LocationPicker(
+                onPicked = { loc ->
+                    picking = false
+                    vm.updateSettings { it.copy(region = loc.country, area = loc.area, areaName = loc.areaName, city = loc.city) }
+                },
+                onDismiss = { picking = false },
+            )
+
+            HorizontalDivider()
             Text("Updates", style = MaterialTheme.typography.titleMedium)
             SettingSwitch(
                 title = "Update automatically",
@@ -804,7 +849,7 @@ private fun SettingsScreen(state: UiState, vm: AppViewModel, onBack: () -> Unit)
                 checked = state.settings.autoUpdate,
                 onChange = { on -> vm.updateSettings { it.copy(autoUpdate = on) } },
             )
-            OutlinedButton(onClick = { vm.checkForUpdate() }, enabled = state.update == null) {
+            OutlinedButton(onClick = { vm.checkForUpdate() }, enabled = !state.updatePopup) {
                 Text("Check for updates (now on build ${remember { com.listingprep.update.Updater.installedBuild(context) }})")
             }
 
@@ -878,4 +923,45 @@ private fun UpdateCard(update: UpdateUi, vm: AppViewModel) {
             }
         }
     }
+}
+
+@Composable
+private fun UpdatePopup(state: UiState, vm: AppViewModel) {
+    val context = LocalContext.current
+    val u = state.update
+    AlertDialog(
+        onDismissRequest = vm::closeUpdatePopup,
+        title = { Text("App update") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(u?.label ?: state.updateNote.orEmpty())
+                if (u != null && !u.ready) {
+                    val p = u.progress
+                    if (p != null) LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth())
+                    else LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                } else if (u == null && state.updateNote == "Checking for updates…") {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+                if (u?.ready == true && !vm.canInstallUpdates()) {
+                    Text("One-time step: allow Listing Prep to install its own updates.", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = {
+            when {
+                u?.ready == true && vm.canInstallUpdates() ->
+                    TextButton(onClick = { vm.closeUpdatePopup(); vm.installUpdate() }) { Text("Install now") }
+                u?.ready == true -> TextButton(onClick = {
+                    context.startActivity(
+                        android.content.Intent(
+                            android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                            Uri.parse("package:${context.packageName}"),
+                        )
+                    )
+                }) { Text("Allow updates") }
+                else -> TextButton(onClick = vm::closeUpdatePopup) { Text(if (u != null) "Hide" else "OK") }
+            }
+        },
+        dismissButton = if (u?.ready == true) ({ TextButton(onClick = vm::closeUpdatePopup) { Text("Later") } }) else null,
+    )
 }
