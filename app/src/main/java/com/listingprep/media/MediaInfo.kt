@@ -1,15 +1,12 @@
 package com.listingprep.media
 
 import android.content.ContentResolver
-import android.content.ContentUris
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.net.Uri
 import android.provider.MediaStore
 import androidx.exifinterface.media.ExifInterface
 import java.text.SimpleDateFormat
-import java.time.LocalDate
-import java.time.ZoneId
 import java.util.Locale
 
 object MediaInfo {
@@ -38,24 +35,6 @@ object MediaInfo {
             }
         }
         return 0L
-    }
-
-    /** Camera photos (DCIM) taken since midnight today, oldest first. */
-    fun todayCameraPhotos(cr: ContentResolver): List<Uri> {
-        val start = LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-        val collection = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
-        val out = mutableListOf<Uri>()
-        cr.query(
-            collection,
-            arrayOf(MediaStore.Images.Media._ID),
-            "${MediaStore.Images.Media.DATE_TAKEN} >= ? AND ${MediaStore.Images.Media.RELATIVE_PATH} LIKE ?",
-            arrayOf(start.toString(), "DCIM/%"),
-            "${MediaStore.Images.Media.DATE_TAKEN} ASC",
-        )?.use { c ->
-            val id = c.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
-            while (c.moveToNext()) out += ContentUris.withAppendedId(collection, c.getLong(id))
-        }
-        return out
     }
 
     /** Decodes a photo (rotation applied) scaled so its longest side is at most [maxDim]. */

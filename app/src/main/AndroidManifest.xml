@@ -1,11 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Only used for "Today's photos" (reads camera photos taken today). -->
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-    <!-- Android 14+: lets you grant access to selected photos only instead of the whole library. -->
-    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
-    <!-- Deliberately NOT requested: ACCESS_MEDIA_LOCATION, so Android also hides photo GPS from this app. -->
+    <!-- No photo-library permission: the gallery picker hands over only the photos you choose. -->
 
     <!-- Floating copy panel shown over Facebook while posting a listing. -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />

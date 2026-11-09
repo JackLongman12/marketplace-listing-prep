@@ -1,7 +1,5 @@
 package com.listingprep.ui
 
-import android.Manifest
-import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.MediaStore
 import androidx.activity.compose.BackHandler
@@ -37,6 +35,7 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Switch
 import com.listingprep.data.readyToShare
+import com.listingprep.data.isActive
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Button
@@ -68,10 +67,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
@@ -146,6 +143,7 @@ private fun StatusCards(state: UiState, vm: AppViewModel) {
 }
 
 private fun statusLabel(item: Item) = when {
+    item.status == Status.SOLD -> "Sold"
     item.status == Status.POSTED -> "Posted"
     item.checked -> "Checked ✓"
     item.status == Status.READY -> "Needs your check"
@@ -163,22 +161,15 @@ private fun ItemListScreen(
     onSettings: () -> Unit,
     onCamera: () -> Unit,
 ) {
-    val context = LocalContext.current
+    // Secondary: Android's photo picker (no photo permission needed; the app only sees what you pick).
     val picker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(MediaStore.getPickImagesMaxLimit())
     ) { uris -> if (uris.isNotEmpty()) vm.importPhotos(uris) }
-    // Full or "selected photos only" access both work; with partial access the app only
-    // ever sees the photos you picked in Android's dialog.
-    val photoPermissions = arrayOf(
-        Manifest.permission.READ_MEDIA_IMAGES,
-        Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
-    )
-    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
-        if (result.values.any { it }) vm.importToday()
-        else vm.showError("Allow photo access to use Today's, or use Pick photos instead.")
-    }
     val idle = state.busy == null
-    val pending = state.items.count { it.description.isBlank() && it.status != Status.POSTED }
+    val pending = state.items.count { it.description.isBlank() && it.isActive }
+    var tab by rememberSaveable { mutableStateOf(Tab.ACTIVE) }
+    val shown = remember(state.items, tab) { state.items.filter { tab.matches(it) } }
+    val deleter = rememberItemDeleter(vm)
     val share = rememberMarketplaceSharer(vm, state.settings)
 
     Scaffold(
@@ -195,27 +186,17 @@ private fun ItemListScreen(
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Button(
                         onClick = onCamera,
                         enabled = idle,
                         modifier = Modifier.weight(1f),
-                    ) { Text("Camera", maxLines = 1) }
-                    OutlinedButton(
+                    ) { Text("Take photos", maxLines = 1) }
+                    TextButton(
                         onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                         enabled = idle,
-                        modifier = Modifier.weight(1f),
-                    ) { Text("Gallery", maxLines = 1) }
-                    OutlinedButton(
-                        onClick = {
-                            val full = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) ==
-                                PackageManager.PERMISSION_GRANTED
-                            // With partial access, ask again so you can add today's new photos to the selection.
-                            if (full) vm.importToday() else permission.launch(photoPermissions)
-                        },
-                        enabled = idle,
-                        modifier = Modifier.weight(1f),
-                    ) { Text("Today's", maxLines = 1) }
+                    ) { Text("From gallery", maxLines = 1) }
                 }
             }
         },
@@ -229,7 +210,25 @@ private fun ItemListScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             item(key = "status", contentType = "status") { StatusCards(state, vm) }
-            if (state.modelPath != null && pending > 0) {
+            if (state.items.isNotEmpty()) item(key = "tabs", contentType = "tabs") {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Tab.entries.forEach { t ->
+                        FilterChip(
+                            selected = tab == t,
+                            onClick = { tab = t },
+                            label = { Text("${t.label} ${state.items.count(t::matches)}") },
+                        )
+                    }
+                }
+            }
+            if (tab == Tab.SOLD && shown.isNotEmpty()) item(key = "clear-sold", contentType = "write") {
+                OutlinedButton(
+                    onClick = { deleter(shown.map { it.id }) },
+                    enabled = idle,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Delete all sold items and their photos") }
+            }
+            if (tab == Tab.ACTIVE && state.modelPath != null && pending > 0) {
                 item(key = "write", contentType = "write") {
                     Card(Modifier.fillMaxWidth()) {
                         Row(Modifier.padding(start = 12.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -272,27 +271,40 @@ private fun ItemListScreen(
             if (state.items.isEmpty() && idle) {
                 item {
                     Text(
-                        "Tap Camera and shoot each thing you're selling: all its angles, then Next item. " +
-                            "Already have photos? Use Gallery or Today's and the app sorts them into items.",
+                        "Tap Take photos and shoot each thing you're selling: all its angles, then Next item. " +
+                            "Already have photos? From gallery sorts them into items.",
                         Modifier.padding(vertical = 24.dp),
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
-            itemsIndexed(state.items, key = { _, it -> it.id }, contentType = { _, _ -> "item" }) { index, item ->
+            if (state.items.isNotEmpty() && shown.isEmpty()) {
+                item(key = "empty-tab") {
+                    Text(
+                        tab.empty,
+                        Modifier.padding(vertical = 24.dp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            itemsIndexed(shown, key = { _, it -> it.id }, contentType = { _, _ -> "item" }) { index, item ->
                 Column {
                     ItemCard(
                         item,
                         generating = state.generatingId == item.id,
                         onClick = { onOpen(item.id) },
-                        onShare = if (item.readyToShare() && item.status != Status.POSTED) {
-                            { share(item) }
-                        } else null,
+                        action = when {
+                            item.isActive && item.readyToShare() -> "Share" to { share(item) }
+                            item.status == Status.POSTED -> "Sold" to { vm.markSold(item.id) }
+                            item.status == Status.SOLD -> "Delete" to { deleter(listOf(item.id)) }
+                            else -> null
+                        },
                     )
-                    if (index < state.items.lastIndex) {
+                    val next = shown.getOrNull(index + 1)
+                    if (tab == Tab.ACTIVE && next != null) {
                         TextButton(
-                            onClick = { vm.mergeWithNext(item.id) },
+                            onClick = { vm.mergeWith(item.id, next.id) },
                             enabled = idle,
                             modifier = Modifier.align(Alignment.End),
                         ) { Text("Merge with item below") }
@@ -303,8 +315,20 @@ private fun ItemListScreen(
     }
 }
 
+private enum class Tab(val label: String, val empty: String) {
+    ACTIVE("To post", "Nothing waiting to be posted."),
+    POSTED("Posted", "Items you've posted show here. Mark them Sold when they go."),
+    SOLD("Sold", "Sold items show here, ready to clean up.");
+
+    fun matches(item: Item) = when (this) {
+        ACTIVE -> item.isActive
+        POSTED -> item.status == Status.POSTED
+        SOLD -> item.status == Status.SOLD
+    }
+}
+
 @Composable
-private fun ItemCard(item: Item, generating: Boolean, onClick: () -> Unit, onShare: (() -> Unit)?) {
+private fun ItemCard(item: Item, generating: Boolean, onClick: () -> Unit, action: Pair<String, () -> Unit>?) {
     Card(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
             AsyncImage(
@@ -333,12 +357,14 @@ private fun ItemCard(item: Item, generating: Boolean, onClick: () -> Unit, onSha
                     Text(item.description, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
             }
-            if (onShare != null) {
+            if (action != null) {
                 Spacer(Modifier.width(8.dp))
-                FilledTonalButton(onClick = onShare) {
-                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Share")
+                FilledTonalButton(onClick = action.second) {
+                    if (action.first == "Share") {
+                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    Text(action.first)
                 }
             }
         }
@@ -352,8 +378,8 @@ private fun ItemCard(item: Item, generating: Boolean, onClick: () -> Unit, onSha
 private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () -> Unit) {
     val idle = state.busy == null
     val index = state.items.indexOfFirst { it.id == item.id }
-    var confirmDelete by remember { mutableStateOf(false) }
     val share = rememberMarketplaceSharer(vm, state.settings)
+    val deleter = rememberItemDeleter(vm)
 
     Scaffold(
         topBar = {
@@ -363,7 +389,7 @@ private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () 
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                 },
                 actions = {
-                    IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Default.Delete, contentDescription = "Delete item") }
+                    IconButton(onClick = { deleter(listOf(item.id)) }) { Icon(Icons.Default.Delete, contentDescription = "Delete item") }
                 },
             )
         },
@@ -486,29 +512,23 @@ private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () 
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            Button(
-                onClick = {
-                    if (item.status == Status.POSTED) vm.updateItem(item.id) { it.copy(status = Status.READY) }
-                    else vm.markPosted(item.id)
-                },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text(if (item.status == Status.POSTED) "Mark as not posted" else "Mark as posted") }
+            when (item.status) {
+                Status.POSTED -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { vm.markSold(item.id) }, modifier = Modifier.weight(1f)) { Text("Mark as sold") }
+                    OutlinedButton(onClick = { vm.markActive(item.id) }, modifier = Modifier.weight(1f)) { Text("Not posted") }
+                }
+                Status.SOLD -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { deleter(listOf(item.id)) }, modifier = Modifier.weight(1f)) { Text("Delete item & photos") }
+                    OutlinedButton(onClick = { vm.markPosted(item.id) }, modifier = Modifier.weight(1f)) { Text("Not sold") }
+                }
+                else -> OutlinedButton(onClick = { vm.markPosted(item.id) }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Mark as posted")
+                }
+            }
             if (index in 0 until state.items.lastIndex) {
                 TextButton(onClick = { vm.mergeWithNext(item.id) }, enabled = idle) { Text("Merge with next item") }
             }
         }
-    }
-
-    if (confirmDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            title = { Text("Delete this item?") },
-            text = { Text("Your original photos stay in your gallery.") },
-            confirmButton = {
-                TextButton(onClick = { confirmDelete = false; vm.deleteItem(item.id) }) { Text("Delete") }
-            },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
-        )
     }
 }
 

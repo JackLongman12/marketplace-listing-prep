@@ -5,7 +5,11 @@ import com.listingprep.ml.DownloadState
 import com.listingprep.ml.ModelDownloadService
 import com.listingprep.ml.ModelDownloader
 import kotlinx.coroutines.delay
+import android.content.ContentUris
 import android.content.Intent
+import android.content.IntentSender
+import android.provider.MediaStore
+import com.listingprep.data.isActive
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
@@ -100,6 +104,32 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun updateItem(id: String, transform: (Item) -> Item) =
         setItems { items -> items.map { if (it.id == id) transform(it) else it } }
 
+    fun markSold(id: String) = updateItem(id) { it.copy(status = Status.SOLD) }
+
+    fun markActive(id: String) = updateItem(id) {
+        it.copy(status = if (it.description.isBlank()) Status.DRAFT else Status.READY)
+    }
+
+    /** Gallery originals of these items, as MediaStore links Android can delete (camera shots excluded). */
+    fun galleryOriginals(ids: List<String>): List<Uri> =
+        _state.value.items.filter { it.id in ids }.flatMap { it.photos }.mapNotNull { p ->
+            val uri = Uri.parse(p.uri)
+            if (uri.scheme != "content" || uri.authority != MediaStore.AUTHORITY) return@mapNotNull null
+            // Photo picker links end in the MediaStore id of the local photo.
+            val id = uri.lastPathSegment?.toLongOrNull() ?: return@mapNotNull null
+            ContentUris.withAppendedId(MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL), id)
+        }.distinct()
+
+    fun photoCount(ids: List<String>) =
+        _state.value.items.filter { it.id in ids }.sumOf { item -> item.photos.count { it.uri.startsWith("file:") } }
+
+    /** Android's own "Allow Listing Prep to delete these photos?" dialog, or null if it can't be built. */
+    fun galleryDeleteRequest(uris: List<Uri>): IntentSender? =
+        if (uris.isEmpty()) null
+        else runCatching { MediaStore.createDeleteRequest(ctx.contentResolver, uris).intentSender }.getOrNull()
+
+    fun deleteItems(ids: List<String>) = ids.forEach(::deleteItem)
+
     fun deleteItem(id: String) {
         val item = _state.value.items.find { it.id == id } ?: return
         setItems { items -> items.filterNot { it.id == id } }
@@ -185,16 +215,25 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         list
     }
 
-    fun mergeWithNext(id: String) = setItems { items ->
+    fun mergeWithNext(id: String) {
+        val items = _state.value.items
         val i = items.indexOfFirst { it.id == id }
-        if (i < 0 || i >= items.lastIndex) return@setItems items
+        items.getOrNull(i + 1)?.let { mergeWith(id, it.id) }
+    }
+
+    /** Moves [otherId]'s photos and notes into [id] and removes [otherId]. */
+    fun mergeWith(id: String, otherId: String) = setItems { items ->
+        val i = items.indexOfFirst { it.id == id }
+        val j = items.indexOfFirst { it.id == otherId }
+        if (i < 0 || j < 0 || i == j) return@setItems items
         items.toMutableList().apply {
             val a = this[i]
-            val b = removeAt(i + 1)
+            val b = this[j]
             this[i] = a.copy(
                 photos = a.photos + b.photos,
                 notes = listOf(a.notes, b.notes).filter { it.isNotBlank() }.joinToString("; "),
             )
+            removeAt(j)
         }
     }
 
@@ -256,16 +295,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         setItems { it + newItems }
     }
 
-    fun importToday() = viewModelScope.launch {
-        val uris = withContext(Dispatchers.IO) { MediaInfo.todayCameraPhotos(ctx.contentResolver) }
-        if (uris.isEmpty()) showError("No camera photos from today found.") else importPhotos(uris)
-    }
-
     fun generate(id: String) = work("Writing description…") { generateOne(id) }
 
     fun generateAll() = work("Writing descriptions…") {
         val ids = _state.value.items
-            .filter { it.description.isBlank() && it.status != Status.POSTED }
+            .filter { it.description.isBlank() && it.isActive }
             .map { it.id }
         ids.forEachIndexed { i, id ->
             progress("Writing description ${i + 1} of ${ids.size}", i.toFloat() / ids.size)
@@ -299,7 +333,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             it.copy(
                 title = title.ifBlank { it.title },
                 description = description,
-                status = if (it.status == Status.POSTED) it.status else Status.READY,
+                status = if (it.isActive) Status.READY else it.status,
             )
         }
         _state.update { it.copy(generatingId = null) }

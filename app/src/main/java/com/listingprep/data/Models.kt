@@ -2,7 +2,10 @@ package com.listingprep.data
 
 import java.util.UUID
 
-enum class Status { DRAFT, READY, POSTED }
+enum class Status { DRAFT, READY, POSTED, SOLD }
+
+/** Still being prepared: not posted or sold yet. */
+val Item.isActive get() = status == Status.DRAFT || status == Status.READY
 
 val CONDITIONS = listOf("New", "Like new", "Good", "Fair", "For parts")
 
