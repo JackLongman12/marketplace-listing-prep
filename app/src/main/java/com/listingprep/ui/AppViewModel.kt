@@ -592,6 +592,26 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * Item page "refresh": reads the photos again (text, barcodes, online barcode info), rewrites
+     * the title and description from scratch, and searches the price again.
+     */
+    fun refreshItem(id: String) {
+        val before = _state.value.items.find { it.id == id } ?: return
+        updateItem(id) { it.copy(product = "", checked = false) }
+        writingJob = work("Refreshing this item…") {
+            try {
+                generateOne(id)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                updateItem(id) { it.copy(product = before.product) }
+                throw e
+            }
+        }
+        if (store.geminiKey != null) findPrice(id) // queued: runs right after the rewrite
+    }
+
     /** Stops writing descriptions (the one in progress is discarded). */
     fun stopWriting() {
         writingJob?.cancel()
@@ -981,11 +1001,20 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 return@launch
             }
             updateApk = apk
-            _state.update { it.copy(update = UpdateUi(r.build, "Build ${r.build} is ready. It installs when you leave the app.", ready = true, notes = r.notes)) }
+            installOnLeave = false
+            _state.update {
+                it.copy(
+                    update = UpdateUi(r.build, "Build ${r.build} is ready to install.", ready = true, notes = r.notes),
+                    updatePopup = true, // show what's changing before anything is installed
+                    updateNote = null,
+                )
+            }
         }
     }
 
     fun canInstallUpdates() = Updater.canInstall(ctx)
+
+    fun openUpdatePopup() = _state.update { it.copy(updatePopup = true) }
 
     fun closeUpdatePopup() = _state.update { it.copy(updatePopup = false, updateNote = null) }
 
@@ -999,9 +1028,22 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Called when you leave the app: installs a ready update unless something is still running. */
+    /** Set when you tap "When I leave the app" after reading the update summary. */
+    private var installOnLeave = false
+
+    fun installWhenLeaving() {
+        installOnLeave = true
+        _state.update { s ->
+            s.copy(
+                updatePopup = false,
+                update = s.update?.copy(label = "Build ${s.update.build} installs when you leave the app."),
+            )
+        }
+    }
+
     fun installUpdateIfIdle() {
         val s = _state.value
-        if (s.update?.ready == true && s.settings.autoUpdate && s.busy == null && s.download == null && s.generatingId == null) {
+        if (installOnLeave && s.update?.ready == true && s.busy == null && s.download == null && s.generatingId == null) {
             installUpdate()
         }
     }

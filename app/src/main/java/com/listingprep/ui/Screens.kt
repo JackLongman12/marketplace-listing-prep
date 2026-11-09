@@ -44,6 +44,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.FilledTonalButton
@@ -494,6 +495,20 @@ private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () 
     val share = rememberMarketplaceSharer(vm, state.settings)
     val deleter = rememberItemDeleter(vm)
     var editBackground by remember { mutableStateOf<Int?>(null) }
+    var confirmRefresh by remember { mutableStateOf(false) }
+    if (confirmRefresh) AlertDialog(
+        onDismissRequest = { confirmRefresh = false },
+        title = { Text("Refresh this item?") },
+        text = {
+            Text(
+                "Reads the photos again (text, barcodes), writes a new title and description" +
+                    (if (state.hasPriceKey) " and searches the price again" else "") +
+                    ". Your current title, description" + (if (state.hasPriceKey) " and price" else "") + " will be replaced."
+            )
+        },
+        confirmButton = { TextButton(onClick = { confirmRefresh = false; vm.refreshItem(item.id) }) { Text("Refresh") } },
+        dismissButton = { TextButton(onClick = { confirmRefresh = false }) { Text("Cancel") } },
+    )
 
     Scaffold(
         topBar = {
@@ -503,6 +518,9 @@ private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () 
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                 },
                 actions = {
+                    IconButton(onClick = { confirmRefresh = true }, enabled = idle && state.modelPath != null) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Refresh everything for this item")
+                    }
                     IconButton(onClick = { deleter(listOf(item.id)) }) { Icon(Icons.Default.Delete, contentDescription = "Delete item") }
                 },
             )
@@ -618,10 +636,18 @@ private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () 
                 modifier = Modifier.fillMaxWidth(),
             )
             var priceSetup by remember { mutableStateOf(false) }
-            TextButton(
-                onClick = { if (state.hasPriceKey) vm.findPrice(item.id) else priceSetup = true },
-                enabled = idle && item.title.isNotBlank(),
-            ) { Text("Find typical second-hand price") }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(
+                    onClick = { if (state.hasPriceKey) vm.findPrice(item.id) else priceSetup = true },
+                    enabled = idle && item.title.isNotBlank(),
+                    modifier = Modifier.weight(1f),
+                ) { Text(if (item.price.isBlank()) "Find typical second-hand price" else "Check the price again") }
+                if (state.hasPriceKey && item.price.isNotBlank()) {
+                    IconButton(onClick = { vm.findPrice(item.id) }, enabled = idle && item.title.isNotBlank()) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Search the price again")
+                    }
+                }
+            }
             state.priceHint?.takeIf { it.itemId == item.id }?.let { hint ->
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -959,7 +985,7 @@ private fun UpdateCard(update: UpdateUi, vm: AppViewModel) {
             update.progress?.let { p -> if (!update.ready) LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth()) }
             if (update.ready) {
                 if (vm.canInstallUpdates()) {
-                    Button(onClick = vm::installUpdate) { Text("Install now (app restarts)") }
+                    Button(onClick = vm::openUpdatePopup) { Text("See what's new & install") }
                 } else {
                     Text(
                         "One-time step: allow Listing Prep to install its own updates.",
@@ -990,7 +1016,7 @@ private fun UpdatePopup(state: UiState, vm: AppViewModel) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(u?.label ?: state.updateNote.orEmpty())
                 if (u != null && u.notes.isNotBlank()) {
-                    Text("What's new", style = MaterialTheme.typography.titleSmall)
+                    Text(if (u.ready) "What's changing in this update" else "What's new", style = MaterialTheme.typography.titleSmall)
                     Text(
                         u.notes,
                         style = MaterialTheme.typography.bodySmall,
@@ -1011,8 +1037,10 @@ private fun UpdatePopup(state: UiState, vm: AppViewModel) {
         },
         confirmButton = {
             when {
-                u?.ready == true && vm.canInstallUpdates() ->
+                u?.ready == true && vm.canInstallUpdates() -> Row {
+                    TextButton(onClick = vm::installWhenLeaving) { Text("When I leave") }
                     TextButton(onClick = { vm.closeUpdatePopup(); vm.installUpdate() }) { Text("Install now") }
+                }
                 u?.ready == true -> TextButton(onClick = {
                     context.startActivity(
                         android.content.Intent(
@@ -1024,7 +1052,7 @@ private fun UpdatePopup(state: UiState, vm: AppViewModel) {
                 else -> TextButton(onClick = vm::closeUpdatePopup) { Text(if (u != null) "Hide" else "OK") }
             }
         },
-        dismissButton = if (u?.ready == true) ({ TextButton(onClick = vm::closeUpdatePopup) { Text("Later") } }) else null,
+        dismissButton = if (u?.ready == true) ({ TextButton(onClick = vm::closeUpdatePopup) { Text("Not now") } }) else null,
     )
 }
 

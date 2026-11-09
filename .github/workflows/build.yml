@@ -90,7 +90,8 @@ jobs:
           {
             echo "## What's new"
             echo
-            git log "$RANGE" --no-merges --reverse --format='### %s%n%n%b' | grep -vE '^(Co-Authored-By|Signed-off-by):'
+            git log "$RANGE" --no-merges --reverse --format='### %s%n%n%b' -- app README.md \
+              | grep -vE '^(Co-Authored-By|Signed-off-by):'
             echo
             echo "---"
             echo "Install: download the APK below on your phone and open it. Build 20 and newer update themselves."
