@@ -99,7 +99,7 @@ jobs:
             if [ "$CHANGES" -eq 0 ]; then echo; echo "Maintenance build: nothing in the app changed."; fi
             echo
             git log "$RANGE" --no-merges --reverse --format='### %s%n%n%b' -- app README.md \
-              | grep -vE '^(Co-Authored-By|Signed-off-by):'
+              | grep -vE '^(Co-Authored-By|Signed-off-by):' || true
             echo
             echo "---"
             echo "Install: download the APK below on your phone and open it. Build 20 and newer update themselves."
