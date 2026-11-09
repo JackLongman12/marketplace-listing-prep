@@ -19,6 +19,9 @@ android {
         targetSdk = 35
         versionCode = buildNumber
         versionName = "0.1.$buildNumber"
+
+        // The S26 Ultra is 64-bit ARM; skip native libs for other CPUs to roughly halve the APK.
+        ndk { abiFilters += "arm64-v8a" }
     }
 
     // Release signing key comes from GitHub secrets (see .github/workflows/build.yml).
