@@ -15,6 +15,7 @@ Turn a pile of photos into ready-to-post Facebook Marketplace listings, entirely
 - **Your writing style.** Settings → *AI writing style* sets how every description reads (presets or your own instructions).
 - **Background clean-up.** After shooting you see a white-background preview of each photo and pick: this photo, all photos, or none. The original is always kept.
 - **Undo.** Deleting, merging and status changes show an Undo bar.
+- **Price help (optional).** Set your location, then *Find typical second-hand price* checks used listings on eBay in your country (your own free eBay API keys; only the title is sent).
 - **Bulk select.** Long-press items to merge, mark posted/sold, or delete several at once.
 - **You check it.** Each item has a *Checked* switch; sharing stays locked until you've reviewed the photos and text.
 - **Posts it fast.** *Share to Marketplace* saves the photos cover-first, opens Facebook, and shows a floating panel with one-tap copy buttons for the title and description. *Done* marks the item posted.

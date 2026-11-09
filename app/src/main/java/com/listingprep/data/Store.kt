@@ -61,6 +61,20 @@ class Store(context: Context) {
             }.apply()
         }
 
+    /** eBay developer keys for the price search, encrypted with the Keystore key. */
+    var ebayKeys: Pair<String, String>?
+        get() {
+            val id = prefs.getString("ebayIdEnc", null)?.let(TokenVault::decrypt) ?: return null
+            val secret = prefs.getString("ebaySecretEnc", null)?.let(TokenVault::decrypt) ?: return null
+            return id to secret
+        }
+        set(v) {
+            prefs.edit().apply {
+                if (v == null) { remove("ebayIdEnc"); remove("ebaySecretEnc") }
+                else { putString("ebayIdEnc", TokenVault.encrypt(v.first)); putString("ebaySecretEnc", TokenVault.encrypt(v.second)) }
+            }.apply()
+        }
+
     var lastUpdateCheck: Long
         get() = prefs.getLong("lastUpdateCheck", 0L)
         set(v) { prefs.edit().putLong("lastUpdateCheck", v).apply() }

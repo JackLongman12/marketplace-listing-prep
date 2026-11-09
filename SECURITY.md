@@ -19,6 +19,10 @@ Please report security issues privately through GitHub:
   to `api.upcitemdb.com`, `world.openfoodfacts.org` or `openlibrary.org`; these are the only
   extra hosts the network allowlist permits. Redirects to other hosts are refused, replies
   are capped at 256 KB and treated as untrusted text. Off switch in Settings.
+- **Price search.** Only when you tap *Find typical second-hand price*, using your own eBay
+  developer keys (stored encrypted with the Android Keystore; the access token stays in
+  memory). Sends the item title and the eBay country site to `api.ebay.com` only, over HTTPS,
+  no redirects, replies capped at 1 MB. No photos, description or exact location.
 - **App updates.** The app reads this repo's latest release from `api.github.com` and
   downloads the APK from GitHub's hosts (HTTPS, no token, nothing about you sent). Before
   installing it checks the published SHA-256, that the package name matches, that the build

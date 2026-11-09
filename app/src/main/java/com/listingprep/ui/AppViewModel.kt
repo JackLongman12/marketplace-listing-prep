@@ -31,6 +31,7 @@ import com.listingprep.ml.ModelFiles
 import com.listingprep.ml.Ocr
 import com.listingprep.ml.Codes
 import com.listingprep.ml.ProductLookup
+import com.listingprep.ml.PriceLookup
 import com.listingprep.data.Photo
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -74,7 +75,12 @@ data class UiState(
     /** Pop-up for a manual "Check for updates": open, and its result text when there's no update to show. */
     val updatePopup: Boolean = false,
     val updateNote: String? = null,
+    val hasEbayKeys: Boolean = false,
+    /** Result of "Find second-hand price" for one item. */
+    val priceHint: PriceHint? = null,
 )
+
+data class PriceHint(val itemId: String, val text: String, val value: String?)
 
 data class UpdateUi(val build: Int, val label: String, val progress: Float? = null, val ready: Boolean = false)
 
@@ -97,6 +103,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             settings = store.loadSettings(),
             modelPath = ModelFiles.find(app)?.absolutePath,
             hasHfToken = !store.hfToken.isNullOrBlank(),
+            hasEbayKeys = store.ebayKeys != null,
         )
     )
     val state = _state.asStateFlow()
@@ -476,6 +483,47 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ---- second-hand price search (eBay Browse API) -----------------------------
+
+    fun saveEbayKeys(id: String, secret: String) {
+        store.ebayKeys = if (id.isBlank() || secret.isBlank()) null else id.trim() to secret.trim()
+        PriceLookup.forgetToken()
+        _state.update { it.copy(hasEbayKeys = store.ebayKeys != null) }
+    }
+
+    fun findPrice(id: String) = work("Searching second-hand prices…") {
+        val item = _state.value.items.find { it.id == id } ?: return@work
+        val keys = store.ebayKeys ?: return@work
+        val settings = _state.value.settings
+        val region = Regions.current(settings)
+        val result = withContext(Dispatchers.IO) {
+            runCatching { PriceLookup.estimate(keys.first, keys.second, item.title, region.code) }
+        }
+        val hint = result.fold(
+            onSuccess = { e ->
+                if (e == null) PriceHint(id, "Not enough similar used listings found. Try a simpler title (brand + model).", null)
+                else {
+                    val other = e.currency != region.currency
+                    val text = "Typical used price: ${e.currency} ${PriceLookup.round(e.median)} " +
+                        "(middle half ${PriceLookup.round(e.low)}–${PriceLookup.round(e.high)}, ${e.count} listings on eBay ${e.site})." +
+                        if (other) " eBay has no ${region.name} site, so this is in ${e.currency}." else ""
+                    PriceHint(id, text, if (other) null else PriceLookup.round(e.median))
+                }
+            },
+            onFailure = { e ->
+                PriceHint(
+                    id,
+                    if (e is PriceLookup.BadKeys) "eBay didn't accept your keys. Check them in Settings → Price search."
+                    else "Price search failed: ${e.message}",
+                    null,
+                )
+            },
+        )
+        _state.update { it.copy(priceHint = hint) }
+    }
+
+    fun dismissPriceHint() = _state.update { it.copy(priceHint = null) }
+
     // ---- running the model (stoppable) --------------------------------------
 
     private val describeLock = Mutex()
@@ -745,6 +793,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 ?.forEach { it.delete() }
         }
         store.hfToken = null
+        store.ebayKeys = null
         TokenVault.deleteKey()
         setItems { emptyList() } // goes through the same save queue, so no stale write lands after
         store.saveSettings(Settings())
