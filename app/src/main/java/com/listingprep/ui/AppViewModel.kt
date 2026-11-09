@@ -205,7 +205,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 describer.ensureLoaded(path)
                 progress(label ?: "Writing description…", _state.value.progress)
             }
-            val uris = item.photos.map(Uri::parse)
+            val uris = item.photos.map { Uri.parse(it.uri) }
             val ocrImages = uris.take(4).mapNotNull { runCatching { MediaInfo.decode(cr, it, 1280) }.getOrNull() }
             val ocrText = Ocr.read(ocrImages)
             ocrImages.forEach { it.recycle() }
