@@ -294,6 +294,7 @@ private fun ItemListScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             item(key = "status", contentType = "status") { StatusCards(state, vm) }
+            state.update?.let { u -> item(key = "update", contentType = "update") { UpdateCard(u, vm) } }
             if (state.items.isNotEmpty()) item(key = "tabs", contentType = "tabs") {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Tab.entries.forEach { t ->
@@ -726,6 +727,7 @@ private fun SettingsScreen(state: UiState, vm: AppViewModel, onBack: () -> Unit)
     val modelPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) vm.importModel(uri)
     }
+    val context = LocalContext.current
     val idle = state.busy == null
 
     Scaffold(
@@ -794,6 +796,19 @@ private fun SettingsScreen(state: UiState, vm: AppViewModel, onBack: () -> Unit)
             )
 
             HorizontalDivider()
+            Text("Updates", style = MaterialTheme.typography.titleMedium)
+            SettingSwitch(
+                title = "Update automatically",
+                detail = "Checks this app's GitHub releases, downloads a new build and installs it when you leave the app. " +
+                    "Only builds signed with the same key as this one are accepted.",
+                checked = state.settings.autoUpdate,
+                onChange = { on -> vm.updateSettings { it.copy(autoUpdate = on) } },
+            )
+            OutlinedButton(onClick = { vm.checkForUpdate() }, enabled = state.update == null) {
+                Text("Check for updates (now on build ${remember { com.listingprep.update.Updater.installedBuild(context) }})")
+            }
+
+            HorizontalDivider()
             Text("Listing defaults", style = MaterialTheme.typography.titleMedium)
             OutlinedTextField(
                 value = state.settings.footer,
@@ -833,5 +848,34 @@ private fun SettingSwitch(title: String, detail: String, checked: Boolean, onCha
         }
         Spacer(Modifier.width(12.dp))
         Switch(checked = checked, onCheckedChange = onChange)
+    }
+}
+
+@Composable
+private fun UpdateCard(update: UpdateUi, vm: AppViewModel) {
+    val context = LocalContext.current
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(update.label, style = MaterialTheme.typography.bodyMedium)
+            update.progress?.let { p -> if (!update.ready) LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth()) }
+            if (update.ready) {
+                if (vm.canInstallUpdates()) {
+                    Button(onClick = vm::installUpdate) { Text("Install now (app restarts)") }
+                } else {
+                    Text(
+                        "One-time step: allow Listing Prep to install its own updates.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    OutlinedButton(onClick = {
+                        context.startActivity(
+                            android.content.Intent(
+                                android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                Uri.parse("package:${context.packageName}"),
+                            )
+                        )
+                    }) { Text("Allow updates") }
+                }
+            }
+        }
     }
 }

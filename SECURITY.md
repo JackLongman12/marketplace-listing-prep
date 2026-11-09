@@ -19,6 +19,11 @@ Please report security issues privately through GitHub:
   to `api.upcitemdb.com`, `world.openfoodfacts.org` or `openlibrary.org`; these are the only
   extra hosts the network allowlist permits. Redirects to other hosts are refused, replies
   are capped at 256 KB and treated as untrusted text. Off switch in Settings.
+- **App updates.** The app reads this repo's latest release from `api.github.com` and
+  downloads the APK from GitHub's hosts (HTTPS, no token, nothing about you sent). Before
+  installing it checks the published SHA-256, that the package name matches, that the build
+  is newer, and that the APK is signed with the same key as the installed app. A build signed
+  by anyone else is rejected. Off switch in Settings → Updates.
 - **Model download.** Done by the app itself from the signed link on Hugging Face's CDN
   (hf.co / huggingface.co hosts only, HTTPS only); the token is never sent to the CDN.
   Interrupted downloads resume with a freshly signed link. The file must match Hugging Face's published SHA-256 before it's loaded,

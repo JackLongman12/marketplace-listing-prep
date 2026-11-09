@@ -35,6 +35,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import com.listingprep.ml.WritingService
+import com.listingprep.update.UpdateState
+import com.listingprep.update.Updater
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -61,7 +63,11 @@ data class UiState(
     val download: DownloadUi? = null,
     /** "Item deleted · Undo" bar; [UndoUi.stamp] changes for every new action. */
     val undo: UndoUi? = null,
+    /** App update status (checking, downloading, ready to install). */
+    val update: UpdateUi? = null,
 )
+
+data class UpdateUi(val build: Int, val label: String, val progress: Float? = null, val ready: Boolean = false)
 
 data class UndoUi(val message: String, val stamp: Long = System.nanoTime())
 
@@ -95,6 +101,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         watchDownload()
         moveModelToKeptStorage()
+        viewModelScope.launch { UpdateState.error.collect { e -> if (e != null) { showError(e); UpdateState.error.value = null } } }
+        if (_state.value.settings.autoUpdate && System.currentTimeMillis() - store.lastUpdateCheck > 6 * 60 * 60 * 1000L) {
+            checkForUpdate(manual = false)
+        }
         // Leftover from builds that had a "Share photos" button.
         viewModelScope.launch(Dispatchers.IO) {
             File(app.cacheDir, "share").deleteRecursively()
@@ -718,6 +728,66 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 }
             }
+        }
+    }
+
+    // ---- app updates (from GitHub releases) ----------------------------------
+
+    private var updateApk: File? = null
+    private var updateJob: Job? = null
+
+    /** Checks GitHub for a newer build and downloads + verifies it. */
+    fun checkForUpdate(manual: Boolean = true) {
+        if (updateJob?.isActive == true) return
+        updateJob = viewModelScope.launch {
+            if (manual) _state.update { it.copy(update = UpdateUi(0, "Checking for updates…")) }
+            val release = withContext(Dispatchers.IO) { runCatching { Updater.check(ctx) } }
+            store.lastUpdateCheck = System.currentTimeMillis()
+            val r = release.getOrElse {
+                _state.update { s -> s.copy(update = null) }
+                if (manual) showError("Couldn't check for updates: ${it.message}")
+                return@launch
+            }
+            if (r == null) {
+                _state.update { it.copy(update = null) }
+                if (manual) showError("You're on the latest build (${Updater.installedBuild(ctx)}).")
+                return@launch
+            }
+            _state.update { it.copy(update = UpdateUi(r.build, "Downloading build ${r.build}…", 0f)) }
+            var last = 0L
+            val apk = withContext(Dispatchers.IO) {
+                runCatching {
+                    Updater.download(ctx, r) { p ->
+                        val now = System.currentTimeMillis()
+                        if (now - last > 400) { last = now; _state.update { it.copy(update = UpdateUi(r.build, "Downloading build ${r.build}…", p)) } }
+                    }
+                }
+            }.getOrElse {
+                _state.update { s -> s.copy(update = null) }
+                showError("Update not installed: ${it.message}")
+                return@launch
+            }
+            updateApk = apk
+            _state.update { it.copy(update = UpdateUi(r.build, "Build ${r.build} is ready. It installs when you leave the app.", ready = true)) }
+        }
+    }
+
+    fun canInstallUpdates() = Updater.canInstall(ctx)
+
+    /** Installs now (the app closes and reopens updated). */
+    fun installUpdate() {
+        val apk = updateApk ?: return
+        if (!Updater.canInstall(ctx)) return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { Updater.install(ctx, apk) }.onFailure { showError("Update failed: ${it.message}") }
+        }
+    }
+
+    /** Called when you leave the app: installs a ready update unless something is still running. */
+    fun installUpdateIfIdle() {
+        val s = _state.value
+        if (s.update?.ready == true && s.settings.autoUpdate && s.busy == null && s.download == null && s.generatingId == null) {
+            installUpdate()
         }
     }
 

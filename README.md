@@ -25,6 +25,8 @@ Turn a pile of photos into ready-to-post Facebook Marketplace listings, entirely
 2. Open it and allow installs from your browser when Android asks.
 3. In the app, go to **Settings → AI model** for the one-time model setup (free, 4.4 GB, Wi-Fi).
 
+After that the app updates itself: it checks this repo's releases, downloads the new build, verifies its checksum and signing key, and installs it when you leave the app. The first update asks you once to allow Listing Prep to install updates.
+
 Built and tested for the Galaxy S26 Ultra (Android 13+, 64-bit ARM, 8 GB+ RAM recommended).
 
 ## Privacy

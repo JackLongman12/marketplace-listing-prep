@@ -5,6 +5,9 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
+import com.listingprep.ui.AppViewModel
+import com.listingprep.update.UpdateState
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -18,6 +21,20 @@ import com.listingprep.ui.App
 import kotlinx.coroutines.flow.MutableStateFlow
 
 class MainActivity : ComponentActivity() {
+    private val vm: AppViewModel by viewModels()
+
+    override fun onStart() {
+        super.onStart()
+        UpdateState.appVisible = true
+    }
+
+    override fun onStop() {
+        super.onStop()
+        UpdateState.appVisible = false
+        // Leaving the app is the moment to install a downloaded update: nothing is interrupted.
+        if (!isChangingConfigurations) vm.installUpdateIfIdle()
+    }
+
     /** Item id sent back by the copy panel's "Done" button. */
     private val postedId = MutableStateFlow<String?>(null)
 

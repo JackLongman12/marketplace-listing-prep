@@ -52,6 +52,8 @@ data class Settings(
     val onlineLookup: Boolean = true,
     /** Write descriptions automatically after taking photos. */
     val autoWrite: Boolean = true,
+    /** Download new builds from GitHub and install them when you leave the app. */
+    val autoUpdate: Boolean = true,
 )
 
 /** Full description text as it should be pasted into Facebook. */

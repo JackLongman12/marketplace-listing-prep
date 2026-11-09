@@ -30,6 +30,7 @@ class Store(context: Context) {
         writingStyle = prefs.getString("writingStyle", null) ?: "",
         onlineLookup = prefs.getBoolean("onlineLookup", true),
         autoWrite = prefs.getBoolean("autoWrite", true),
+        autoUpdate = prefs.getBoolean("autoUpdate", true),
     )
 
     fun saveSettings(s: Settings) {
@@ -39,6 +40,7 @@ class Store(context: Context) {
             .putString("writingStyle", s.writingStyle)
             .putBoolean("onlineLookup", s.onlineLookup)
             .putBoolean("autoWrite", s.autoWrite)
+            .putBoolean("autoUpdate", s.autoUpdate)
             .apply()
     }
 
@@ -50,6 +52,10 @@ class Store(context: Context) {
                 if (v.isNullOrBlank()) remove("hfTokenEnc") else putString("hfTokenEnc", TokenVault.encrypt(v))
             }.apply()
         }
+
+    var lastUpdateCheck: Long
+        get() = prefs.getLong("lastUpdateCheck", 0L)
+        set(v) { prefs.edit().putLong("lastUpdateCheck", v).apply() }
 
     var modelDownloadId: Long
         get() = prefs.getLong("modelDownloadId", -1L)

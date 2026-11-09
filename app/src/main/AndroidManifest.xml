@@ -17,6 +17,9 @@
     <!-- "Descriptions ready" notification after background writing. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Installs new builds of this app from its GitHub releases (same signing key only). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <!-- Built-in camera. Photos stay inside the app; no location is recorded. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
@@ -67,6 +70,10 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Floating panel with copy buttons shown over Facebook while the user posts a Marketplace listing" />
         </service>
+
+        <receiver
+            android:name=".update.UpdateReceiver"
+            android:exported="false" />
 
         <service
             android:name=".ml.WritingService"
