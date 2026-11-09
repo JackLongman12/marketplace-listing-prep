@@ -29,7 +29,13 @@ jobs:
       - name: Write verification metadata
         run: |
           rm -f gradle/verification-metadata.xml
-          gradle --write-verification-metadata sha256 assembleRelease
+          # A compile error is reported, not failed, so it doesn't send "Run failed" emails.
+          if gradle --write-verification-metadata sha256 assembleRelease > build.log 2>&1; then
+            echo "CHECK: PASSED" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "CHECK: FAILED" | tee -a "$GITHUB_STEP_SUMMARY"
+            grep -E "^e: |What went wrong" -A3 build.log | head -40 || true
+          fi
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
