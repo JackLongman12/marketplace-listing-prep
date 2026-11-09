@@ -10,6 +10,8 @@ import android.content.Intent
 import android.content.IntentSender
 import android.provider.MediaStore
 import com.listingprep.data.isActive
+import com.listingprep.data.stripDefaults
+import com.listingprep.data.withDefaults
 import com.listingprep.data.Regions
 import android.net.Uri
 import android.provider.DocumentsContract
@@ -236,6 +238,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun count(n: Int, one: String) = if (n == 1) one else "$n items"
+
+    /** Changes the condition and the "Condition:" line in the description to match. */
+    fun setCondition(id: String, condition: String) = updateItem(id) { item ->
+        val hasLine = item.description.lines().any { it.trim().startsWith("Condition:", ignoreCase = true) }
+        item.copy(
+            condition = condition,
+            description = if (!hasLine) item.description else item.description.lines().joinToString("\n") { line ->
+                if (line.trim().startsWith("Condition:", ignoreCase = true)) "Condition: $condition" else line
+            },
+        )
+    }
 
     fun markSold(id: String) = markSoldAll(listOf(id))
     fun markSoldAll(ids: List<String>) =
@@ -621,7 +634,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             val item = _state.value.items.find { it.id == id } ?: return@work
             if (item.description.isBlank()) return@work
             val key = store.geminiKey?.takeIf { _state.value.settings.cloudWriting }
-            val prompt = Describer.rewritePrompt(item.title, item.description, tone)
+            val prompt = Describer.rewritePrompt(item.title, stripDefaults(item.description, _state.value.settings), tone)
             _state.update { it.copy(generatingId = id) }
             val fromCloud = key?.let {
                 runCatching {
@@ -639,7 +652,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 writeListing(path, emptyList(), prompt)
             } ?: throw IllegalStateException("The rewrite didn't come out right, so your text was kept. Try again or pick another tone.")
             undoable("Rewritten in a new tone", listOf(id)) {
-                updateItem(id) { it.copy(title = listing.title.ifBlank { it.title }, description = listing.description, checked = false) }
+                updateItem(id) {
+                    it.copy(
+                        title = listing.title.ifBlank { it.title },
+                        description = withDefaults(listing.description, it.condition, _state.value.settings),
+                        checked = false,
+                    )
+                }
             }
         }
     }
@@ -796,7 +815,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         updateItem(id) {
             it.copy(
                 title = listing.title.ifBlank { it.title },
-                description = listing.description,
+                description = withDefaults(listing.description, it.condition, _state.value.settings),
                 status = if (it.isActive) Status.READY else it.status,
             )
         }

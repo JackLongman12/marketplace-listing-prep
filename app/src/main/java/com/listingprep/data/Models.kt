@@ -67,14 +67,37 @@ data class Settings(
     val city: String = "",
 )
 
-/** Full description text as it should be pasted into Facebook. */
-fun Item.listingDescription(settings: Settings): String = buildString {
-    append(description.trim())
+/** The description with the listing defaults removed (what the AI should see when rewriting). */
+fun stripDefaults(description: String, settings: Settings): String {
+    var text = description
+    val footer = settings.footer.trim()
+    if (footer.isNotEmpty()) text = text.replace(footer, "")
+    return text.lines().filterNot { it.trim().startsWith("Condition:", ignoreCase = true) }
+        .joinToString("\n").replace(Regex("\n{3,}"), "\n\n").trim()
+}
+
+/** AI text followed by the listing defaults: "Condition: …" and your footer from Settings. */
+fun withDefaults(description: String, condition: String, settings: Settings): String = buildString {
+    append(stripDefaults(description, settings))
     if (condition.isNotBlank()) {
         if (isNotEmpty()) append("\n\n")
         append("Condition: ").append(condition)
     }
     if (settings.footer.isNotBlank()) {
-        append("\n\n").append(settings.footer.trim())
+        if (isNotEmpty()) append("\n\n")
+        append(settings.footer.trim())
+    }
+}.trim()
+
+/** Full description text as it should be pasted into Facebook (defaults added only if missing). */
+fun Item.listingDescription(settings: Settings): String = buildString {
+    append(description.trim())
+    if (condition.isNotBlank() && description.lines().none { it.trim().startsWith("Condition:", ignoreCase = true) }) {
+        if (isNotEmpty()) append("\n\n")
+        append("Condition: ").append(condition)
+    }
+    val footer = settings.footer.trim()
+    if (footer.isNotEmpty() && !description.contains(footer)) {
+        append("\n\n").append(footer)
     }
 }.trim()
