@@ -38,6 +38,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -106,6 +107,18 @@ data class UndoUi(val message: String, val stamp: Long = System.nanoTime())
 data class DownloadUi(val label: String, val progress: Float?)
 
 enum class MoveTarget { PREVIOUS, NEXT, NEW }
+
+/**
+ * Heavy work (AI model, photo reading) runs on two low-priority threads, so the screen keeps
+ * the processor it needs to scroll and animate smoothly. Threads the AI engine starts from here
+ * inherit the low priority too.
+ */
+private val Background = java.util.concurrent.Executors.newFixedThreadPool(2) { r ->
+    Thread({
+        android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
+        r.run()
+    }, "listingprep-ai").apply { isDaemon = true }
+}.asCoroutineDispatcher()
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val ctx: Application get() = getApplication()
@@ -444,7 +457,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         fresh.forEach {
             runCatching { cr.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
         }
-        val analyzed = withContext(Dispatchers.Default) {
+        val analyzed = withContext(Background) {
             Embedder(ctx).use { embedder ->
                 fresh.mapIndexedNotNull { i, uri ->
                     progress("Analyzing photo ${i + 1} of ${fresh.size}", (i + 1f) / fresh.size)
@@ -566,7 +579,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      * interrupted, so it finishes in the background and its answer is thrown away.
      */
     private suspend fun describeOnce(images: List<Bitmap>, prompt: String): String {
-        val d = CoroutineScope(Dispatchers.Default).async { describeLock.withLock { describer.describe(images, prompt) } }
+        val d = CoroutineScope(Background).async { describeLock.withLock { describer.describe(images, prompt) } }
         currentDescribe = d
         try {
             return d.await()
@@ -601,7 +614,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
             val path = _state.value.modelPath
             if (fromCloud == null && path == null) throw IllegalStateException("No AI model yet. Add one in Settings, or turn on writing with Google.")
-            val listing = fromCloud ?: withContext(Dispatchers.Default) {
+            val listing = fromCloud ?: withContext(Background) {
                 if (!describer.isLoaded(path!!)) {
                     progress("Loading AI model…", null)
                     describeLock.withLock { describer.ensureLoaded(path) }
@@ -654,12 +667,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      * Each photo is decoded once and read for text and codes, three at a time. Runs on the CPU,
      * so for a batch it overlaps with the model writing the previous item on the GPU.
      */
-    private suspend fun analyze(item: Item): Analysis = withContext(Dispatchers.Default) {
+    private suspend fun analyze(item: Item): Analysis = withContext(Background) {
         val cr = ctx.contentResolver
         val ocr = Ocr.client()
         val scanner = Codes.scanner()
         try {
-            val gate = Semaphore(3)
+            val gate = Semaphore(2)
             val parts = item.photos.take(12).mapIndexed { i, p ->
                 async {
                     gate.withPermit {
@@ -690,7 +703,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun warmUp() {
         val path = _state.value.modelPath ?: return
         if (describer.isLoaded(path)) return
-        viewModelScope.launch(Dispatchers.Default) {
+        viewModelScope.launch(Background) {
             runCatching { describeLock.withLock { describer.ensureLoaded(path) } }
         }
     }
@@ -703,7 +716,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (key == null && path == null) throw IllegalStateException("No AI model yet. Add one in Settings, or turn on writing with Google.")
         _state.update { it.copy(generatingId = id) }
         val label = _state.value.busy
-        val listing = withContext(Dispatchers.Default) {
+        val listing = withContext(Background) {
             val pending = ready ?: async { analyze(item) } // reads photos while the model loads
             val analysis = pending.await()
             val codes = analysis.codes
@@ -802,7 +815,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun scanCodes(id: String) = work("Looking for barcodes and QR codes…") {
         val item = _state.value.items.find { it.id == id } ?: return@work
-        val codes = withContext(Dispatchers.Default) { scanCodesIn(item.photos.map { Uri.parse(it.uri) }) }
+        val codes = withContext(Background) { scanCodesIn(item.photos.map { Uri.parse(it.uri) }) }
         updateItem(id) { it.copy(codes = codes) }
         if (codes.isEmpty()) showError("No barcode or QR code found. Take a close, sharp photo of it and try again.")
     }
