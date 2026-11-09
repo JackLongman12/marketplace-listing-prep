@@ -186,9 +186,8 @@ private fun StatusCards(state: UiState, vm: AppViewModel) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                        if (state.generatingId != null || label.startsWith("Writing")) {
-                            TextButton(onClick = vm::stopWriting) { Text("Stop") }
-                        }
+                        // Always offered: also gets you out if something is stuck.
+                        TextButton(onClick = vm::stopAll) { Text("Stop") }
                     }
                     val p = state.progress
                     if (p != null) {
@@ -296,7 +295,7 @@ private fun ItemListScreen(
                         }
                     }
                     Spacer(Modifier.weight(1f))
-                    Button(onClick = { deleter(chosen); selected = emptySet() }, enabled = idle) { Text("Delete") }
+                    Button(onClick = { deleter(chosen); selected = emptySet() }) { Text("Delete") }
                 }
             } else BottomAppBar {
                 Row(
@@ -341,7 +340,6 @@ private fun ItemListScreen(
             if (tab == Tab.SOLD && shown.isNotEmpty()) item(key = "clear-sold", contentType = "write") {
                 OutlinedButton(
                     onClick = { deleter(shown.map { it.id }) },
-                    enabled = idle,
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Delete all sold items and their photos") }
             }

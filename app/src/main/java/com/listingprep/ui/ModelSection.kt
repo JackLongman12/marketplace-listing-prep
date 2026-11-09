@@ -137,7 +137,6 @@ fun ModelSection(state: UiState, vm: AppViewModel, onImportFile: () -> Unit) {
 /** Shown in Settings: what leaves the phone, and buttons to remove everything. */
 @Composable
 fun PrivacySection(state: UiState, vm: AppViewModel) {
-    val idle = state.busy == null
     var confirmErase by remember { mutableStateOf(false) }
 
     Text("Privacy", style = MaterialTheme.typography.titleMedium)
@@ -152,10 +151,10 @@ fun PrivacySection(state: UiState, vm: AppViewModel) {
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
-    OutlinedButton(onClick = { vm.deleteAllSharedCopies() }, enabled = idle, modifier = Modifier.fillMaxWidth()) {
+    OutlinedButton(onClick = { vm.deleteAllSharedCopies() }, modifier = Modifier.fillMaxWidth()) {
         Text("Delete shared photo copies")
     }
-    OutlinedButton(onClick = { confirmErase = true }, enabled = idle, modifier = Modifier.fillMaxWidth()) {
+    OutlinedButton(onClick = { confirmErase = true }, modifier = Modifier.fillMaxWidth()) {
         Text("Erase everything (before uninstalling)")
     }
 

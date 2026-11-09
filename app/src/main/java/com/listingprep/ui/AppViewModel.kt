@@ -428,8 +428,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---- background work (one job at a time) -----------------------------
 
-    private fun work(label: String, block: suspend () -> Unit) = viewModelScope.launch {
-        workMutex.withLock {
+    /** Every queued or running background task, so Stop can cancel all of them (e.g. if one hangs). */
+    private val workJobs = java.util.Collections.synchronizedSet(mutableSetOf<Job>())
+
+    private fun work(label: String, block: suspend () -> Unit): Job = viewModelScope.launch {
+        val me = coroutineContext[Job]!!
+        workJobs += me
+        try { workMutex.withLock {
             _state.update { it.copy(busy = label, progress = null, error = null) }
             try {
                 block()
@@ -440,7 +445,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             } finally {
                 _state.update { it.copy(busy = null, progress = null, generatingId = null) }
             }
-        }
+        } } finally { workJobs -= me }
+    }
+
+    /**
+     * Stops everything running or queued: writing, refreshing, photo reading, price search.
+     * A stuck AI call is abandoned (it finishes on its own and its answer is thrown away).
+     */
+    fun stopAll() {
+        currentDescribe?.cancel()
+        writingJob?.cancel()
+        workJobs.toList().forEach { it.cancel() }
+        _state.update { it.copy(busy = null, progress = null, generatingId = null) }
     }
 
     private fun progress(label: String, value: Float?) =
@@ -957,9 +973,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      * Wipes everything the app has stored: items, shared photo copies, the token, the
      * model, caches. Your original photos are never touched.
      */
-    fun eraseEverything() = work("Erasing app data…") {
+    fun eraseEverything() = viewModelScope.launch {
+        // Never waits for other work: stops it first, so Erase works even if something is stuck.
+        stopAll()
+        _state.update { it.copy(busy = "Erasing app data…") }
         ModelDownloadService.cancel(ctx)
-        describer.close()
+        // A stuck model call may still be using the engine; close it once that call ends.
+        CoroutineScope(Background).launch { describeLock.withLock { describer.close() } }
         withContext(Dispatchers.IO) {
             Exporter.deleteAllOwned(ctx)
             ctx.contentResolver.persistedUriPermissions.forEach {
@@ -983,7 +1003,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Deletes every photo copy this app ever saved to the shared gallery. */
-    fun deleteAllSharedCopies() = work("Deleting shared photo copies…") {
+    fun deleteAllSharedCopies() = viewModelScope.launch {
         val n = withContext(Dispatchers.IO) { Exporter.deleteAllOwned(ctx) }
         setItems { items -> items.map { it.copy(exportedUris = emptyList()) } }
         showError("Deleted $n photo copies from Pictures/ListingPrep.")
