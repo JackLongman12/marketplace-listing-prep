@@ -8,7 +8,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.runtime.remember
 import androidx.compose.material3.Card
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -91,7 +93,8 @@ fun ModelSection(state: UiState, vm: AppViewModel, onImportFile: () -> Unit) {
                 Text("2. Create a Read token and copy it.", style = MaterialTheme.typography.bodyMedium)
                 OutlinedButton(onClick = { open(ModelDownloader.TOKEN_PAGE) }) { Text("Create token") }
                 Text("3. Paste it here.", style = MaterialTheme.typography.bodyMedium)
-                var token by rememberSaveable { mutableStateOf("") }
+                // Plain remember: rememberSaveable would copy the token into saved instance state.
+                var token by remember { mutableStateOf("") }
                 OutlinedTextField(
                     value = token,
                     onValueChange = { token = it.trim() },
@@ -117,6 +120,58 @@ fun ModelSection(state: UiState, vm: AppViewModel, onImportFile: () -> Unit) {
 
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedButton(onClick = onImportFile, enabled = idle && download == null) { Text("Import model file") }
-        OutlinedButton(onClick = vm::rescanModel, enabled = idle) { Text("Rescan") }
+        OutlinedButton(onClick = { vm.rescanModel() }, enabled = idle) { Text("Rescan") }
+    }
+
+    if (state.offerDeleteImportSource != null) {
+        AlertDialog(
+            onDismissRequest = vm::keepImportSource,
+            title = { Text("Model installed") },
+            text = { Text("Delete the 4.4 GB original you imported from? The app has its own verified copy now.") },
+            confirmButton = { TextButton(onClick = vm::deleteImportSource) { Text("Delete original") } },
+            dismissButton = { TextButton(onClick = vm::keepImportSource) { Text("Keep it") } },
+        )
+    }
+}
+
+/** Shown in Settings: what leaves the phone, and buttons to remove everything. */
+@Composable
+fun PrivacySection(state: UiState, vm: AppViewModel) {
+    val idle = state.busy == null
+    var confirmErase by remember { mutableStateOf(false) }
+
+    Text("Privacy", style = MaterialTheme.typography.titleMedium)
+    Text(
+        "Photos, items and AI processing stay on this phone. The app may only connect to " +
+            "huggingface.co (to start the model download); every other connection, including " +
+            "library telemetry, is blocked. Shared photos are re-saved without location or camera data.\n\n" +
+            "Uninstalling removes the model, your items and the token. Android keeps photo copies in " +
+            "Pictures/ListingPrep after uninstall, so delete them first if you're removing the app.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    OutlinedButton(onClick = { vm.deleteAllSharedCopies() }, enabled = idle, modifier = Modifier.fillMaxWidth()) {
+        Text("Delete shared photo copies")
+    }
+    OutlinedButton(onClick = { confirmErase = true }, enabled = idle, modifier = Modifier.fillMaxWidth()) {
+        Text("Erase everything (before uninstalling)")
+    }
+
+    if (confirmErase) {
+        AlertDialog(
+            onDismissRequest = { confirmErase = false },
+            title = { Text("Erase everything?") },
+            text = {
+                Text(
+                    "Deletes all items, photo copies in Pictures/ListingPrep, the AI model (4.4 GB), " +
+                        "your Hugging Face token and settings. Your original photos are not touched. " +
+                        "This can't be undone."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { confirmErase = false; vm.eraseEverything() }) { Text("Erase") }
+            },
+            dismissButton = { TextButton(onClick = { confirmErase = false }) { Text("Cancel") } },
+        )
     }
 }

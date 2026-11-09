@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Network allowlist. The app trusts NO certificate authorities by default, so every HTTPS
+  connection fails, including background telemetry from bundled libraries (e.g. ML Kit
+  usage stats to Google). The single exception is huggingface.co, which the app contacts
+  only to exchange your token for a signed model link. The 4.4 GB download itself is done
+  by Android's DownloadManager (a separate system process) and is not affected.
+  Plain HTTP is disabled everywhere.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors />
+    </base-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="false">huggingface.co</domain>
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </domain-config>
+</network-security-config>

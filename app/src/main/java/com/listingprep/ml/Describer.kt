@@ -122,13 +122,41 @@ class Describer(private val context: Context) : Closeable {
     }
 }
 
-/** Where the Gemma model file lives. You can also `adb push` a .task file into [dir]. */
+/**
+ * Where the Gemma model file lives: the app's own external folder, which Android deletes
+ * on uninstall. Only a file that passed the official SHA-256 check is ever returned by
+ * [find]; a file copied in over USB must pass [verifyCandidates] (Settings → Rescan) first.
+ */
 object ModelFiles {
     fun dir(context: Context): File = context.getExternalFilesDir(null) ?: context.filesDir
 
-    fun find(context: Context): File? =
+    /** Internal (private) record of the verified file: path, size and modified time. */
+    private fun marker(context: Context) = File(context.filesDir, "model.verified")
+
+    private fun fingerprint(f: File) = "${f.absolutePath}|${f.length()}|${f.lastModified()}"
+
+    fun candidates(context: Context): List<File> =
         listOf(dir(context), context.filesDir).distinct()
             .flatMap { it.listFiles()?.toList().orEmpty() }
             .filter { it.isFile && it.name.endsWith(".task") && it.length() > 100_000_000 }
-            .maxByOrNull { it.lastModified() }
+            .sortedByDescending { it.lastModified() }
+
+    fun markVerified(context: Context, f: File) = marker(context).writeText(fingerprint(f))
+
+    private fun isVerified(context: Context, f: File) =
+        runCatching { marker(context).readText() == fingerprint(f) }.getOrDefault(false)
+
+    fun find(context: Context): File? = candidates(context).firstOrNull { isVerified(context, it) }
+
+    /** Hashes unverified candidates (slow: ~4 GB each) and records the first official one. */
+    fun verifyCandidates(context: Context): File? {
+        find(context)?.let { return it }
+        for (f in candidates(context)) {
+            if (ModelDownloader.isOfficialModel(f)) {
+                markVerified(context, f)
+                return f
+            }
+        }
+        return null
+    }
 }

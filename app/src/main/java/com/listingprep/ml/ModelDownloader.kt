@@ -111,20 +111,29 @@ object ModelDownloader {
         File(ModelFiles.dir(context), PART_NAME).delete()
     }
 
-    /** Verifies the finished download and moves it into place. Blocking (hashes 4.4 GB). */
-    fun finish(context: Context): Finish {
+    /**
+     * Verifies the finished download, moves it into place, and removes the entry from
+     * Android's Downloads list so nothing about it is left behind. Blocking (hashes 4.4 GB).
+     */
+    fun finish(context: Context, id: Long): Finish {
         val dir = ModelFiles.dir(context)
         val part = File(dir, PART_NAME)
-        if (!part.exists() || part.length() != SIZE_BYTES) {
-            part.delete()
-            return Finish.INCOMPLETE
+        val result = when {
+            !part.exists() || part.length() != SIZE_BYTES -> Finish.INCOMPLETE
+            !isOfficialModel(part) -> Finish.BAD_CHECKSUM
+            else -> {
+                dir.listFiles()?.filter { it.name.endsWith(".task") }?.forEach { it.delete() }
+                val installed = File(dir, FILE_NAME)
+                if (part.renameTo(installed)) {
+                    ModelFiles.markVerified(context, installed)
+                    Finish.OK
+                } else Finish.INCOMPLETE
+            }
         }
-        if (!isOfficialModel(part)) {
-            part.delete()
-            return Finish.BAD_CHECKSUM
-        }
-        dir.listFiles()?.filter { it.name.endsWith(".task") }?.forEach { it.delete() }
-        return if (part.renameTo(File(dir, FILE_NAME))) Finish.OK else Finish.INCOMPLETE
+        // After the rename the entry points at a missing file, so remove() only drops the list entry.
+        context.getSystemService(DownloadManager::class.java).remove(id)
+        part.delete()
+        return result
     }
 
     fun isOfficialModel(file: File): Boolean = sha256(file) == SHA256

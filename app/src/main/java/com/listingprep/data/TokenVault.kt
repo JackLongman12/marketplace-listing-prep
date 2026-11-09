@@ -38,6 +38,10 @@ object TokenVault {
         return Base64.encodeToString(sealed, Base64.NO_WRAP)
     }
 
+    fun deleteKey() {
+        runCatching { KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(ALIAS) }
+    }
+
     fun decrypt(encoded: String): String? = runCatching {
         val sealed = Base64.decode(encoded, Base64.NO_WRAP)
         val cipher = Cipher.getInstance(TRANSFORMATION).apply {

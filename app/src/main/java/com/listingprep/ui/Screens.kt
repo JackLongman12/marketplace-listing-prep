@@ -107,7 +107,7 @@ fun App(
     // "Done ✓" on the floating panel: mark posted and go back to the list for the next item.
     LaunchedEffect(postedId) {
         val id = postedId ?: return@LaunchedEffect
-        vm.updateItem(id) { it.copy(status = Status.POSTED) }
+        vm.markPosted(id)
         screen = null
         onPostedHandled()
     }
@@ -520,9 +520,8 @@ private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () 
             }
             Button(
                 onClick = {
-                    vm.updateItem(item.id) {
-                        it.copy(status = if (it.status == Status.POSTED) Status.READY else Status.POSTED)
-                    }
+                    if (item.status == Status.POSTED) vm.updateItem(item.id) { it.copy(status = Status.READY) }
+                    else vm.markPosted(item.id)
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(if (item.status == Status.POSTED) "Mark as not posted" else "Mark as posted") }
@@ -620,6 +619,9 @@ private fun SettingsScreen(state: UiState, vm: AppViewModel, onBack: () -> Unit)
             StatusCards(state, vm)
 
             ModelSection(state, vm, onImportFile = { modelPicker.launch(arrayOf("*/*")) })
+
+            HorizontalDivider()
+            PrivacySection(state, vm)
 
             HorizontalDivider()
             Text("Listing defaults", style = MaterialTheme.typography.titleMedium)

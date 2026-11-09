@@ -7,13 +7,16 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import android.content.Intent
 import android.net.Uri
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
+import com.listingprep.media.Exporter
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.listingprep.data.Item
 import com.listingprep.data.Settings
 import com.listingprep.data.Status
 import com.listingprep.data.Store
+import com.listingprep.data.TokenVault
 import com.listingprep.media.MediaInfo
 import com.listingprep.ml.Analyzed
 import com.listingprep.ml.Describer
@@ -43,6 +46,8 @@ data class UiState(
     val generatingId: String? = null,
     val error: String? = null,
     val hasHfToken: Boolean = false,
+    /** Set after a manual import: the original file the user may want deleted. */
+    val offerDeleteImportSource: String? = null,
     /** Non-null while the model is downloading in the background. */
     val download: DownloadUi? = null,
 )
@@ -85,7 +90,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun updateItem(id: String, transform: (Item) -> Item) =
         setItems { items -> items.map { if (it.id == id) transform(it) else it } }
 
-    fun deleteItem(id: String) = setItems { items -> items.filterNot { it.id == id } }
+    fun deleteItem(id: String) {
+        _state.value.items.find { it.id == id }?.let { item ->
+            viewModelScope.launch(Dispatchers.IO) { Exporter.deleteExported(ctx, item.exportedUris) }
+        }
+        setItems { items -> items.filterNot { it.id == id } }
+    }
 
     fun setCover(id: String, index: Int) = updateItem(id) { item ->
         val p = item.photos.getOrNull(index) ?: return@updateItem item
@@ -243,9 +253,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---- model file -------------------------------------------------------
 
-    fun rescanModel() {
+    /** Re-reads the model folder without hashing; only files already verified count. */
+    private fun refreshModelPath() {
         describer.close()
         _state.update { it.copy(modelPath = ModelFiles.find(ctx)?.absolutePath) }
+    }
+
+    /** Checks any model file in the folder (e.g. one copied over USB) against the official checksum. */
+    fun rescanModel() = work("Checking model file (checksum)…") {
+        withContext(Dispatchers.IO) { ModelFiles.verifyCandidates(ctx) }
+        refreshModelPath()
+        if (_state.value.modelPath == null && ModelFiles.candidates(ctx).isNotEmpty()) {
+            showError("The model file in the app folder isn't the official ${ModelDownloader.FILE_NAME} (checksum mismatch), so it won't be used.")
+        }
     }
 
     fun importModel(uri: Uri) = work("Copying model…") {
@@ -260,10 +280,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
             if (!name.endsWith(".task")) {
-                throw IllegalArgumentException("That's not a .task model file ($name).")
+                throw IllegalArgumentException("That's not a .task model file.")
             }
             val dir = ModelFiles.dir(ctx)
-            val part = File(dir, "$name.part")
+            // Fixed name: the display name comes from another app and could contain "../".
+            val part = File(dir, "import.part")
             cr.openInputStream(uri)!!.use { input ->
                 part.outputStream().use { out ->
                     val buf = ByteArray(1 shl 20)
@@ -292,9 +313,67 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
             describer.close()
             dir.listFiles()?.filter { it.name.endsWith(".task") }?.forEach { it.delete() }
-            part.renameTo(File(dir, ModelDownloader.FILE_NAME))
+            val installed = File(dir, ModelDownloader.FILE_NAME)
+            if (!part.renameTo(installed)) throw IllegalStateException("Couldn't move the model into place.")
+            ModelFiles.markVerified(ctx, installed)
         }
-        rescanModel()
+        refreshModelPath()
+        // The 4.4 GB original is still in Downloads; offer to remove it.
+        _state.update { it.copy(offerDeleteImportSource = uri.toString()) }
+    }
+
+    fun deleteImportSource() {
+        val uri = _state.value.offerDeleteImportSource ?: return
+        _state.update { it.copy(offerDeleteImportSource = null) }
+        viewModelScope.launch(Dispatchers.IO) {
+            val deleted = runCatching { DocumentsContract.deleteDocument(ctx.contentResolver, Uri.parse(uri)) }
+                .getOrDefault(false)
+            if (!deleted) showError("Couldn't delete the original here. Delete it in the Files app (Downloads).")
+        }
+    }
+
+    fun keepImportSource() = _state.update { it.copy(offerDeleteImportSource = null) }
+
+    // ---- leftovers: shared photo copies -------------------------------------
+
+    /** Marks posted and removes that item's copies from Pictures/ListingPrep. */
+    fun markPosted(id: String) {
+        val item = _state.value.items.find { it.id == id } ?: return
+        viewModelScope.launch(Dispatchers.IO) { Exporter.deleteExported(ctx, item.exportedUris) }
+        updateItem(id) { it.copy(status = Status.POSTED, exportedUris = emptyList()) }
+    }
+
+    /**
+     * Wipes everything the app has stored: items, shared photo copies, the token, the
+     * model, caches. Your original photos are never touched.
+     */
+    fun eraseEverything() = work("Erasing app data…") {
+        val id = store.modelDownloadId
+        if (id >= 0) ModelDownloader.cancel(ctx, id)
+        store.modelDownloadId = -1
+        downloadWatcher?.cancel()
+        describer.close()
+        withContext(Dispatchers.IO) {
+            Exporter.deleteAllOwned(ctx)
+            ctx.contentResolver.persistedUriPermissions.forEach {
+                runCatching { ctx.contentResolver.releasePersistableUriPermission(it.uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+            }
+            listOf(ModelFiles.dir(ctx), ctx.filesDir, ctx.cacheDir).forEach { dir ->
+                dir.listFiles()?.forEach { it.deleteRecursively() }
+            }
+        }
+        store.hfToken = null
+        TokenVault.deleteKey()
+        setItems { emptyList() } // goes through the same save queue, so no stale write lands after
+        store.saveSettings(Settings())
+        _state.update { UiState(settings = Settings()) }
+    }
+
+    /** Deletes every photo copy this app ever saved to the shared gallery. */
+    fun deleteAllSharedCopies() = work("Deleting shared photo copies…") {
+        val n = withContext(Dispatchers.IO) { Exporter.deleteAllOwned(ctx) }
+        setItems { items -> items.map { it.copy(exportedUris = emptyList()) } }
+        showError("Deleted $n photo copies from Pictures/ListingPrep.")
     }
 
     // ---- one-tap model download -------------------------------------------
@@ -356,11 +435,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     }
                     DownloadManager.STATUS_SUCCESSFUL -> {
                         _state.update { it.copy(download = DownloadUi("Verifying download (checksum)…", null)) }
-                        val result = withContext(Dispatchers.IO) { ModelDownloader.finish(ctx) }
+                        val result = withContext(Dispatchers.IO) { ModelDownloader.finish(ctx, id) }
                         store.modelDownloadId = -1
                         _state.update { it.copy(download = null) }
                         when (result) {
-                            ModelDownloader.Finish.OK -> rescanModel()
+                            ModelDownloader.Finish.OK -> refreshModelPath()
                             ModelDownloader.Finish.INCOMPLETE ->
                                 showError("The download finished but the file is incomplete. Tap Download again.")
                             ModelDownloader.Finish.BAD_CHECKSUM ->

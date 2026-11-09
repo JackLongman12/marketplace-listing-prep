@@ -1,21 +1,39 @@
 package com.listingprep.media
 
 import android.content.ClipData
+import android.content.ContentResolver
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.net.Uri
 import android.provider.MediaStore
-import android.webkit.MimeTypeMap
 import androidx.core.content.FileProvider
 import com.listingprep.data.Item
 import java.io.File
+import java.io.OutputStream
 
-/** Gets an item's photos out of the app, cover first, so Facebook can pick them up. */
+/**
+ * Gets an item's photos out of the app, cover first, so Facebook can pick them up.
+ *
+ * Privacy: every exported photo is a fresh JPEG re-encoded from pixels, so it carries
+ * no EXIF at all: no GPS location (your home), no camera serial, no timestamps.
+ */
 object Exporter {
+    private const val ALBUM = "Pictures/ListingPrep"
+    private const val MAX_DIM = 2048 // Marketplace shows photos at up to 2048 px anyway.
+
+    private fun writeCleanJpeg(cr: ContentResolver, src: Uri, out: OutputStream): Boolean = runCatching {
+        val bmp = MediaInfo.decode(cr, src, MAX_DIM) // rotation is applied to the pixels
+        try {
+            bmp.compress(Bitmap.CompressFormat.JPEG, 92, out)
+        } finally {
+            bmp.recycle()
+        }
+    }.getOrDefault(false)
 
     /**
-     * Copies the photos into Pictures/ListingPrep. The cover gets the newest timestamp,
+     * Saves clean copies into Pictures/ListingPrep. The cover gets the newest timestamp,
      * so it shows first in Facebook's photo picker (newest-first).
      */
     fun saveToAlbum(context: Context, item: Item): List<Uri> {
@@ -24,20 +42,17 @@ object Exporter {
         val n = item.photos.size
         val saved = mutableListOf<Uri>()
         item.photos.forEachIndexed { i, p ->
-            val src = Uri.parse(p.uri)
-            val mime = cr.getType(src) ?: "image/jpeg"
-            val ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(mime) ?: "jpg"
             val values = ContentValues().apply {
-                put(MediaStore.Images.Media.DISPLAY_NAME, "listing_${now}_${i + 1}.$ext")
-                put(MediaStore.Images.Media.MIME_TYPE, mime)
-                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/ListingPrep")
+                put(MediaStore.Images.Media.DISPLAY_NAME, "listing_${now}_${i + 1}.jpg")
+                put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                put(MediaStore.Images.Media.RELATIVE_PATH, ALBUM)
                 put(MediaStore.Images.Media.DATE_TAKEN, now + (n - i) * 1000L)
                 put(MediaStore.Images.Media.IS_PENDING, 1)
             }
             val dest = cr.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return@forEachIndexed
             val ok = runCatching {
-                cr.openInputStream(src)!!.use { input -> cr.openOutputStream(dest)!!.use { input.copyTo(it) } }
-            }.isSuccess
+                cr.openOutputStream(dest)!!.use { writeCleanJpeg(cr, Uri.parse(p.uri), it) }
+            }.getOrDefault(false)
             if (ok) {
                 cr.update(dest, ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }, null, null)
                 saved += dest
@@ -53,23 +68,45 @@ object Exporter {
         uris.forEach { runCatching { context.contentResolver.delete(Uri.parse(it), null, null) } }
     }
 
-    /** Builds a share-sheet intent with copies of the photos (cover first). */
+    /**
+     * Deletes every image this app ever put in Pictures/ListingPrep, including ones from
+     * items that were since deleted. Android keeps shared-gallery files after uninstall,
+     * so this is how you leave nothing behind.
+     */
+    fun deleteAllOwned(context: Context): Int {
+        val cr = context.contentResolver
+        val collection = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        var deleted = 0
+        cr.query(
+            collection,
+            arrayOf(MediaStore.Images.Media._ID),
+            "${MediaStore.Images.Media.RELATIVE_PATH} LIKE ? AND ${MediaStore.MediaColumns.OWNER_PACKAGE_NAME} = ?",
+            arrayOf("$ALBUM%", context.packageName),
+            null,
+        )?.use { c ->
+            val idCol = c.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+            while (c.moveToNext()) {
+                val uri = android.content.ContentUris.withAppendedId(collection, c.getLong(idCol))
+                deleted += runCatching { cr.delete(uri, null, null) }.getOrDefault(0)
+            }
+        }
+        File(context.cacheDir, "share").deleteRecursively()
+        return deleted
+    }
+
+    /** Builds a share-sheet intent with clean copies of the photos (cover first). */
     fun shareIntent(context: Context, item: Item): Intent? {
         val cr = context.contentResolver
         val dir = File(context.cacheDir, "share").apply { deleteRecursively(); mkdirs() }
         val uris = ArrayList<Uri>()
         item.photos.forEachIndexed { i, p ->
-            val src = Uri.parse(p.uri)
-            val ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(cr.getType(src) ?: "image/jpeg") ?: "jpg"
-            val f = File(dir, "photo_${i + 1}.$ext")
-            val ok = runCatching {
-                cr.openInputStream(src)!!.use { input -> f.outputStream().use { input.copyTo(it) } }
-            }.isSuccess
-            if (ok) uris += FileProvider.getUriForFile(context, "${context.packageName}.files", f)
+            val f = File(dir, "photo_${i + 1}.jpg")
+            val ok = f.outputStream().use { writeCleanJpeg(cr, Uri.parse(p.uri), it) }
+            if (ok) uris += FileProvider.getUriForFile(context, "${context.packageName}.files", f) else f.delete()
         }
         if (uris.isEmpty()) return null
         val send = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
-            type = "image/*"
+            type = "image/jpeg"
             putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
             clipData = ClipData.newUri(cr, "photos", uris[0]).also { cd ->
                 uris.drop(1).forEach { cd.addItem(ClipData.Item(it)) }
