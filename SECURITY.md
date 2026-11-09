@@ -10,12 +10,13 @@ Please report security issues privately through GitHub:
 - **Everything runs on the phone.** Photo grouping, text reading and description writing
   use on-device models (MediaPipe, ML Kit, Gemma 3n). Photos and listings are never uploaded
   by this app.
-- **Network allowlist.** The app trusts no certificate authority except for `huggingface.co`,
-  which it contacts only to exchange your Hugging Face token for a short-lived signed model
-  link. All other connections, including telemetry from bundled libraries, fail. Plain HTTP
+- **Network allowlist.** The app trusts no certificate authority except for Hugging Face
+  (`huggingface.co`, `hf.co` and their subdomains), used only for the one-time model
+  download. The token goes only to `huggingface.co`, to get a short-lived signed link. All other connections, including telemetry from bundled libraries, fail. Plain HTTP
   is disabled.
-- **Model download.** Done by Android's DownloadManager from the signed link; the token is
-  never given to it. The file must match Hugging Face's published SHA-256 before it's loaded,
+- **Model download.** Done by the app itself from the signed link on Hugging Face's CDN
+  (hf.co / huggingface.co hosts only, HTTPS only); the token is never sent to the CDN.
+  Interrupted downloads resume with a freshly signed link. The file must match Hugging Face's published SHA-256 before it's loaded,
   and the token is deleted from the phone once the model is installed.
 - **Token storage.** Encrypted with an AES-256-GCM key held in the Android Keystore.
 - **Shared photos.** Re-encoded as new JPEGs with no EXIF (no GPS location, no camera data).

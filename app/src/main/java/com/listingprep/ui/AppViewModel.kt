@@ -1,9 +1,9 @@
 package com.listingprep.ui
 
 import android.app.Application
-import android.app.DownloadManager
+import com.listingprep.ml.DownloadState
+import com.listingprep.ml.ModelDownloadService
 import com.listingprep.ml.ModelDownloader
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import android.content.Intent
 import android.net.Uri
@@ -73,11 +73,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     )
     val state = _state.asStateFlow()
 
-    private var downloadWatcher: Job? = null
-
     init {
         // Pick up a download that was running (or finished) while the app was closed.
-        if (store.modelDownloadId >= 0) watchDownload(store.modelDownloadId)
+        if (store.modelDownloadId >= 0) {
+            // Left over from builds that used Android's DownloadManager.
+            ModelDownloader.removeLegacyDownload(app, store.modelDownloadId)
+            store.modelDownloadId = -1
+        }
+        watchDownload()
         // Temporary share-sheet copies only need to live while the target app reads them.
         viewModelScope.launch(Dispatchers.IO) {
             val cutoff = System.currentTimeMillis() - 60 * 60 * 1000L
@@ -366,10 +369,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      * model, caches. Your original photos are never touched.
      */
     fun eraseEverything() = work("Erasing app data…") {
-        val id = store.modelDownloadId
-        if (id >= 0) ModelDownloader.cancel(ctx, id)
-        store.modelDownloadId = -1
-        downloadWatcher?.cancel()
+        ModelDownloadService.cancel(ctx)
         describer.close()
         withContext(Dispatchers.IO) {
             Exporter.deleteAllOwned(ctx)
@@ -407,64 +407,37 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun downloadModel(wifiOnly: Boolean = true) {
-        val token = store.hfToken
-        if (token.isNullOrBlank()) {
+        if (store.hfToken.isNullOrBlank()) {
             showError("Add your Hugging Face token first.")
             return
         }
-        if (ModelDownloader.freeBytes(ctx) < ModelDownloader.SIZE_BYTES + 300_000_000L) {
+        val remaining = ModelDownloader.SIZE_BYTES - ModelDownloader.partFile(ctx).length()
+        if (ModelDownloader.freeBytes(ctx) < remaining + 300_000_000L) {
             showError("Not enough free space: the model needs about 4.7 GB.")
             return
         }
-        if (store.modelDownloadId >= 0) ModelDownloader.cancel(ctx, store.modelDownloadId)
-        downloadWatcher?.cancel()
-        downloadWatcher = viewModelScope.launch {
-            _state.update { it.copy(download = DownloadUi("Contacting Hugging Face…", null)) }
-            val id = try {
-                withContext(Dispatchers.IO) { ModelDownloader.start(ctx, token, wifiOnly) }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: ModelDownloader.Refused) {
-                _state.update { it.copy(download = null, error = ModelDownloader.refusedMessage(e.code)) }
-                return@launch
-            } catch (e: Exception) {
-                _state.update { it.copy(download = null, error = "Couldn't start the download: ${e.message}") }
-                return@launch
-            }
-            store.modelDownloadId = id
-            watchDownload(id)
-        }
+        // Resumes from any bytes already downloaded.
+        ModelDownloadService.start(ctx, wifiOnly)
     }
 
-    fun cancelDownload() {
-        val id = store.modelDownloadId
-        if (id >= 0) ModelDownloader.cancel(ctx, id)
-        store.modelDownloadId = -1
-        downloadWatcher?.cancel()
-        _state.update { it.copy(download = null) }
-    }
+    fun cancelDownload() = ModelDownloadService.cancel(ctx)
 
-    private fun watchDownload(id: Long) {
-        downloadWatcher?.cancel()
-        downloadWatcher = viewModelScope.launch {
-            _state.update { it.copy(download = DownloadUi("Starting download…", null)) }
-            while (true) {
-                val p = withContext(Dispatchers.IO) { ModelDownloader.query(ctx, id) }
-                when (p?.status) {
-                    null -> {
-                        store.modelDownloadId = -1
-                        _state.update { it.copy(download = null) }
-                        return@launch
+    private fun watchDownload() {
+        viewModelScope.launch {
+            ModelDownloadService.state.collect { s ->
+                when (s) {
+                    DownloadState.Idle -> _state.update { it.copy(download = null) }
+                    is DownloadState.Running -> _state.update { it.copy(download = DownloadUi(s.label, s.progress)) }
+                    is DownloadState.Failed -> {
+                        _state.update { it.copy(download = null, error = s.message) }
+                        ModelDownloadService.acknowledge()
                     }
-                    DownloadManager.STATUS_SUCCESSFUL -> {
-                        _state.update { it.copy(download = DownloadUi("Verifying download (checksum)…", null)) }
-                        val result = withContext(Dispatchers.IO) { ModelDownloader.finish(ctx, id) }
-                        store.modelDownloadId = -1
+                    is DownloadState.Done -> {
                         _state.update { it.copy(download = null) }
-                        when (result) {
+                        when (s.result) {
                             ModelDownloader.Finish.OK -> {
                                 refreshModelPath()
-                                // The token is only needed to start a download; don't keep a secret we no longer use.
+                                // The token is only needed to download; don't keep a secret we no longer use.
                                 saveHfToken("")
                             }
                             ModelDownloader.Finish.INCOMPLETE ->
@@ -472,26 +445,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                             ModelDownloader.Finish.BAD_CHECKSUM ->
                                 showError("The downloaded file didn't match the official checksum and was deleted. Tap Download again.")
                         }
-                        return@launch
-                    }
-                    DownloadManager.STATUS_FAILED -> {
-                        ModelDownloader.cancel(ctx, id)
-                        store.modelDownloadId = -1
-                        _state.update { it.copy(download = null, error = ModelDownloader.failureMessage(p.reason)) }
-                        return@launch
-                    }
-                    else -> {
-                        val total = if (p.total > 0) p.total else ModelDownloader.SIZE_BYTES
-                        val gb = "%.1f / %.1f GB".format(p.downloaded / 1e9, total / 1e9)
-                        val label = if (p.status == DownloadManager.STATUS_PAUSED) {
-                            "${ModelDownloader.pausedMessage(p.reason)} ($gb)"
-                        } else {
-                            "Downloading AI model… $gb"
-                        }
-                        _state.update { it.copy(download = DownloadUi(label, p.downloaded.toFloat() / total)) }
+                        ModelDownloadService.acknowledge()
                     }
                 }
-                delay(1500)
             }
         }
     }

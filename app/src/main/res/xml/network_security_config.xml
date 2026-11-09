@@ -2,9 +2,9 @@
 <!--
   Network allowlist. The app trusts NO certificate authorities by default, so every HTTPS
   connection fails, including background telemetry from bundled libraries (e.g. ML Kit
-  usage stats to Google). The single exception is huggingface.co, which the app contacts
-  only to exchange your token for a signed model link. The 4.4 GB download itself is done
-  by Android's DownloadManager (a separate system process) and is not affected.
+  usage stats to Google). The only exceptions are Hugging Face hosts, used solely for the
+  one-time model download: huggingface.co (your token is sent only here, to get a signed
+  link) and its CDN hosts under hf.co / huggingface.co (no token is sent there).
   Plain HTTP is disabled everywhere.
 -->
 <network-security-config>
@@ -12,7 +12,8 @@
         <trust-anchors />
     </base-config>
     <domain-config cleartextTrafficPermitted="false">
-        <domain includeSubdomains="false">huggingface.co</domain>
+        <domain includeSubdomains="true">huggingface.co</domain>
+        <domain includeSubdomains="true">hf.co</domain>
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>
