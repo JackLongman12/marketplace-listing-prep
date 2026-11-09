@@ -35,6 +35,8 @@ import com.listingprep.ml.Codes
 import com.listingprep.ml.ProductLookup
 import com.listingprep.ml.PriceLookup
 import com.listingprep.ml.Gemini
+import com.listingprep.ml.OpenAiCompatible
+import com.listingprep.ml.Provider
 import com.listingprep.data.Photo
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -83,13 +85,15 @@ data class UiState(
     val updatePopup: Boolean = false,
     val updateNote: String? = null,
     val hasPriceKey: Boolean = false,
+    /** Cloud providers with a saved key. */
+    val providerKeys: Set<String> = emptySet(),
     /** Result of "Find second-hand price" for one item. */
     val priceHint: PriceHint? = null,
     /** Shown once after the app updated itself: the new build and what changed. */
     val justUpdated: UpdateUi? = null,
 ) {
     /** Descriptions can be written: the on-phone model is there, or Google writing is on with a key. */
-    val canWrite: Boolean get() = modelPath != null || (settings.cloudWriting && hasPriceKey)
+    val canWrite: Boolean get() = modelPath != null || (settings.cloudWriting && settings.writingProvider in providerKeys)
 }
 
 data class PriceHint(val itemId: String, val text: String, val value: String?, val sources: List<String> = emptyList())
@@ -136,6 +140,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             modelPath = ModelFiles.find(app)?.absolutePath,
             hasHfToken = !store.hfToken.isNullOrBlank(),
             hasPriceKey = !store.geminiKey.isNullOrBlank(),
+            providerKeys = store.providersWithKeys(),
         )
     )
     val state = _state.asStateFlow()
@@ -553,7 +558,41 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun savePriceKey(key: String) {
         store.geminiKey = key.trim().ifBlank { null }
-        _state.update { it.copy(hasPriceKey = !store.geminiKey.isNullOrBlank()) }
+        _state.update { it.copy(hasPriceKey = !store.geminiKey.isNullOrBlank(), providerKeys = store.providersWithKeys()) }
+    }
+
+    fun saveProviderKey(provider: String, key: String) {
+        store.setProviderKey(provider, key.trim().ifBlank { null })
+        _state.update { it.copy(hasPriceKey = !store.geminiKey.isNullOrBlank(), providerKeys = store.providersWithKeys()) }
+    }
+
+    /** The cloud writer in use (provider, key, model), or null when writing on the phone. */
+    private fun cloudWriter(): Triple<Provider, String, String>? {
+        val st = _state.value.settings
+        if (!st.cloudWriting) return null
+        val provider = Provider.of(st.writingProvider)
+        val key = store.providerKey(provider.id) ?: return null
+        return Triple(provider, key, st.writingModel.trim().ifBlank { provider.defaultModel })
+    }
+
+    /** One request to the chosen cloud AI; returns its raw text. */
+    private suspend fun cloudText(writer: Triple<Provider, String, String>, prompt: String, photos: List<android.graphics.Bitmap>, temperature: Double): String {
+        val (provider, key, model) = writer
+        return withContext(Dispatchers.IO) {
+            if (provider == Provider.GEMINI) {
+                val parts = photos.map { Gemini.imagePart(it) } + Gemini.textPart(prompt)
+                Gemini.generate(key, parts, search = false, temperature = temperature).text
+            } else {
+                OpenAiCompatible.generate(provider, key, model, prompt, photos, temperature)
+            }
+        }
+    }
+
+    private fun cloudError(provider: Provider, e: Exception) = when (e) {
+        is Gemini.RateLimited, is OpenAiCompatible.RateLimited -> "${provider.label}'s limit was reached"
+        is Gemini.BadKey, is OpenAiCompatible.BadKey -> "${provider.label} didn't accept the API key"
+        is OpenAiCompatible.BadModel -> e.message ?: "Unknown model"
+        else -> "${provider.label} couldn't be reached (${e.message})"
     }
 
     fun findPrice(id: String) = work("Searching second-hand prices with Google…") {
@@ -633,16 +672,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         writingJob = work("Rewriting in a new tone…") {
             val item = _state.value.items.find { it.id == id } ?: return@work
             if (item.description.isBlank()) return@work
-            val key = store.geminiKey?.takeIf { _state.value.settings.cloudWriting }
+            val writer = cloudWriter()
             val prompt = Describer.rewritePrompt(item.title, stripDefaults(item.description, _state.value.settings), tone)
             _state.update { it.copy(generatingId = id) }
-            val fromCloud = key?.let {
-                runCatching {
-                    withContext(Dispatchers.IO) { Gemini.generate(it, listOf(Gemini.textPart(prompt)), search = false, temperature = 0.5) }
-                }.getOrNull()?.let { a -> Describer.parse(a.text).takeUnless { l -> Describer.looksBroken(l) } }
+            val fromCloud = writer?.let {
+                runCatching { cloudText(it, prompt, emptyList(), 0.5) }
+                    .getOrNull()?.let { text -> Describer.parse(text).takeUnless { l -> Describer.looksBroken(l) } }
             }
             val path = _state.value.modelPath
-            if (fromCloud == null && path == null) throw IllegalStateException("No AI model yet. Add one in Settings, or turn on writing with Google.")
+            if (fromCloud == null && path == null) throw IllegalStateException("No AI model yet. Add one in Settings, or turn on cloud writing.")
             val listing = fromCloud ?: withContext(Background) {
                 if (!describer.isLoaded(path!!)) {
                     progress("Loading AI model…", null)
@@ -746,9 +784,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun generateOne(id: String, ready: Deferred<Analysis>? = null) {
         val item = _state.value.items.find { it.id == id } ?: return
         val settings = _state.value.settings
-        val key = store.geminiKey?.takeIf { settings.cloudWriting }
+        val writer = cloudWriter()
         val path = _state.value.modelPath
-        if (key == null && path == null) throw IllegalStateException("No AI model yet. Add one in Settings, or turn on writing with Google.")
+        if (writer == null && path == null) throw IllegalStateException("No AI model yet. Add one in Settings, or turn on cloud writing.")
         _state.update { it.copy(generatingId = id) }
         val label = _state.value.busy
         val listing = withContext(Background) {
@@ -764,17 +802,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             // One attempt with whichever engine is in use; Google falls back to the phone if it can't answer.
             suspend fun attempt(): Describer.Companion.Listing? {
                 val prompt = Describer.prompt(known, analysis.ocr, style, place)
-                if (key != null && cloudFailed == null) {
+                if (writer != null && cloudFailed == null) {
                     try {
-                        return cloudListing(key, item, prompt)
+                        return cloudListing(writer, item, prompt)
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        cloudFailed = when (e) {
-                            is Gemini.RateLimited -> "Google's free limit was reached"
-                            is Gemini.BadKey -> "Google didn't accept the API key"
-                            else -> "Google couldn't be reached (${e.message})"
-                        }
+                        cloudFailed = cloudError(writer.first, e)
                         if (path == null) throw IllegalStateException("$cloudFailed, and there's no on-phone model to fall back on.")
                         progress("$cloudFailed, so this one is written on the phone…", _state.value.progress)
                     }
@@ -826,14 +860,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      * Writes with Google Gemini: the same instructions as on the phone, plus up to three photos
      * (cover first) re-encoded as fresh JPEGs, so no EXIF or location goes along. Opt-in only.
      */
-    private suspend fun cloudListing(key: String, item: Item, prompt: String): Describer.Companion.Listing? {
+    private suspend fun cloudListing(writer: Triple<Provider, String, String>, item: Item, prompt: String): Describer.Companion.Listing? {
         val cr = ctx.contentResolver
         val photos = item.photos.take(3).mapNotNull { p ->
             runCatching { MediaInfo.decode(cr, Uri.parse(p.shown), 1024) }.getOrNull()
         }
-        val parts = photos.map { bmp -> Gemini.imagePart(bmp).also { bmp.recycle() } } + Gemini.textPart(prompt)
-        val answer = withContext(Dispatchers.IO) { Gemini.generate(key, parts, search = false, temperature = 0.3) }
-        return Describer.parse(answer.text).takeUnless { Describer.looksBroken(it) }
+        try {
+            val text = cloudText(writer, prompt, photos, 0.3)
+            return Describer.parse(text).takeUnless { Describer.looksBroken(it) }
+        } finally {
+            photos.forEach { it.recycle() }
+        }
     }
 
     /** Reads barcodes / QR codes from every photo (the code is often on just one angle). */
@@ -1015,6 +1052,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         store.hfToken = null
         store.geminiKey = null
+        store.clearProviderKeys()
         TokenVault.deleteKey()
         setItems { emptyList() } // goes through the same save queue, so no stale write lands after
         store.saveSettings(Settings())

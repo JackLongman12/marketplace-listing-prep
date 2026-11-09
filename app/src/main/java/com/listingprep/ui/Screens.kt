@@ -961,31 +961,60 @@ private fun SettingsScreen(state: UiState, vm: AppViewModel, onBack: () -> Unit)
                 if (state.hasPriceKey) TextButton(onClick = { vm.savePriceKey("") }) { Text("Remove key") }
             }
             if (keysDialog) PriceKeyDialog(vm, onDone = { keysDialog = false })
+            HorizontalDivider()
+            Text("Cloud writing (optional)", style = MaterialTheme.typography.titleMedium)
+            val provider = com.listingprep.ml.Provider.of(state.settings.writingProvider)
+            val hasKey = provider.id in state.providerKeys
             var confirmCloud by remember { mutableStateOf(false) }
+            var providerKeyDialog by remember { mutableStateOf(false) }
             SettingSwitch(
-                title = "Write descriptions with Google",
-                detail = if (state.hasPriceKey) {
-                    "Faster and usually better than the phone, but up to 3 photos per item, the text read from them and your notes " +
-                        "are sent to Google (Gemini). On the free tier Google may use them to improve its products. If Google's " +
-                        "limit is reached or you're offline, the phone writes instead."
-                } else "Needs the Google AI key above.",
+                title = "Write descriptions with a cloud AI",
+                detail = "Faster and usually better than the phone, but up to 3 photos per item, the text read from them, your notes " +
+                    "and location are sent to the provider you pick. If its limit is reached or you're offline, the phone writes instead.",
                 checked = state.settings.cloudWriting,
                 onChange = { on -> if (on) confirmCloud = true else vm.updateSettings { it.copy(cloudWriting = false) } },
             )
+            Text("Provider", style = MaterialTheme.typography.labelLarge)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                com.listingprep.ml.Provider.entries.forEach { p ->
+                    FilterChip(
+                        selected = provider == p,
+                        onClick = { vm.updateSettings { it.copy(writingProvider = p.id, writingModel = "") } },
+                        label = { Text(p.label + if (p.id in state.providerKeys) " ✓" else "") },
+                    )
+                }
+            }
+            Text(provider.keyHelp, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedButton(onClick = { providerKeyDialog = true }) { Text(if (hasKey) "Change ${provider.label} key" else "Add ${provider.label} key") }
+                if (hasKey) TextButton(onClick = { vm.saveProviderKey(provider.id, "") }) { Text("Remove") }
+            }
+            if (provider != com.listingprep.ml.Provider.GEMINI) {
+                OutlinedTextField(
+                    value = state.settings.writingModel,
+                    onValueChange = { v -> vm.updateSettings { it.copy(writingModel = v.trim().take(100)) } },
+                    label = { Text("Model (blank = ${provider.defaultModel})") },
+                    supportingText = { Text("Model names change; if you get \"model not found\", enter a current one from the provider's site.") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            if (providerKeyDialog) ProviderKeyDialog(provider, vm, onDone = { providerKeyDialog = false })
             if (confirmCloud) AlertDialog(
                 onDismissRequest = { confirmCloud = false },
-                title = { Text("Send photos to Google?") },
+                title = { Text("Send photos to ${provider.label}?") },
                 text = {
                     Text(
                         "With this on, writing a description uploads up to 3 of the item's photos (re-saved without location data), " +
-                            "the text read from them, your notes and your location to Google's Gemini API. Nothing else changes: " +
-                            "you can switch back to on-phone writing any time."
+                            "the text read from them, your notes and your location to ${provider.label}. Free tiers may use what you " +
+                            "send to improve their products. You can switch back to on-phone writing any time." +
+                            if (!hasKey) "\n\nAdd a ${provider.label} key first." else ""
                     )
                 },
                 confirmButton = {
                     TextButton(
                         onClick = { confirmCloud = false; vm.updateSettings { it.copy(cloudWriting = true) } },
-                        enabled = state.hasPriceKey,
+                        enabled = hasKey,
                     ) { Text("Turn on") }
                 },
                 dismissButton = { TextButton(onClick = { confirmCloud = false }) { Text("Cancel") } },
@@ -1203,5 +1232,39 @@ private fun ToneDialog(onPick: (String) -> Unit, onDismiss: () -> Unit) {
         },
         confirmButton = { TextButton(onClick = { onPick(tone) }, enabled = tone.isNotBlank()) { Text("Rewrite") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/** Saves the API key for a cloud provider (stored encrypted on the phone). */
+@Composable
+private fun ProviderKeyDialog(provider: com.listingprep.ml.Provider, vm: AppViewModel, onDone: () -> Unit) {
+    val context = LocalContext.current
+    // Plain remember: rememberSaveable would copy the key into saved instance state.
+    var key by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDone,
+        title = { Text("${provider.label} key") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(provider.keyHelp, style = MaterialTheme.typography.bodySmall)
+                OutlinedButton(onClick = {
+                    context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(provider.keyPage)))
+                }) { Text("Get a key") }
+                OutlinedTextField(
+                    value = key, onValueChange = { key = it.trim() }, singleLine = true,
+                    label = { Text("API key") },
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "Stored encrypted on this phone and sent only to ${provider.host}.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = { vm.saveProviderKey(provider.id, key); onDone() }, enabled = key.length > 15) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onDone) { Text("Cancel") } },
     )
 }

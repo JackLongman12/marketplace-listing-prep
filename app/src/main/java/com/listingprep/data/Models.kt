@@ -56,6 +56,10 @@ data class Settings(
     val autoWrite: Boolean = true,
     /** Opt-in: write descriptions with Google Gemini (photos are sent to Google) instead of on the phone. */
     val cloudWriting: Boolean = false,
+    /** Which cloud AI writes ("gemini", "github", "openrouter", "groq", "mistral"). */
+    val writingProvider: String = "gemini",
+    /** Model name at that provider; blank = the provider's default. */
+    val writingModel: String = "",
     /** Download new builds from GitHub and install them when you leave the app. */
     val autoUpdate: Boolean = true,
     /** ISO region code (e.g. "HK" for Hong Kong SAR); blank = the phone's region. */

@@ -9,6 +9,8 @@
   api.upcitemdb.com, world.openfoodfacts.org and openlibrary.org receive the barcode number only.
   Google AI (only with your own key): generativelanguage.googleapis.com. Price search sends
   the title, condition and location; optional "Write with Google" also sends up to 3 photos.
+  Cloud writing (opt-in, your own key): models.github.ai, openrouter.ai, api.groq.com or
+  api.mistral.ai, whichever provider you pick.
   App updates: api.github.com, github.com and GitHub's download hosts (release files only).
   Plain HTTP is disabled everywhere.
 -->
@@ -29,6 +31,10 @@
         <domain includeSubdomains="false">openlibrary.org</domain>
         <domain includeSubdomains="false">api.github.com</domain>
         <domain includeSubdomains="false">generativelanguage.googleapis.com</domain>
+        <domain includeSubdomains="false">models.github.ai</domain>
+        <domain includeSubdomains="false">openrouter.ai</domain>
+        <domain includeSubdomains="false">api.groq.com</domain>
+        <domain includeSubdomains="false">api.mistral.ai</domain>
         <domain includeSubdomains="false">github.com</domain>
         <domain includeSubdomains="false">objects.githubusercontent.com</domain>
         <domain includeSubdomains="false">release-assets.githubusercontent.com</domain>
