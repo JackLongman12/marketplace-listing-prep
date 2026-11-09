@@ -45,6 +45,8 @@ class Store(context: Context) {
         put("notes", notes)
         put("status", status.name)
         put("createdAt", createdAt)
+        put("checked", checked)
+        put("exportedUris", JSONArray().apply { exportedUris.forEach { put(it) } })
         put("photos", JSONArray().apply {
             photos.forEach { p ->
                 put(JSONObject().apply {
@@ -71,6 +73,8 @@ class Store(context: Context) {
             notes = optString("notes"),
             status = runCatching { Status.valueOf(optString("status")) }.getOrDefault(Status.DRAFT),
             createdAt = optLong("createdAt"),
+            checked = optBoolean("checked", false),
+            exportedUris = optJSONArray("exportedUris")?.let { a -> (0 until a.length()).map { a.getString(it) } }.orEmpty(),
         )
     }
 }

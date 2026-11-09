@@ -35,6 +35,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Switch
+import com.listingprep.data.readyToShare
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Button
@@ -91,10 +95,22 @@ import java.io.File
 private const val SETTINGS = "__settings__"
 
 @Composable
-fun App(vm: AppViewModel = viewModel()) {
+fun App(
+    postedId: String? = null,
+    onPostedHandled: () -> Unit = {},
+    vm: AppViewModel = viewModel(),
+) {
     val state by vm.state.collectAsStateWithLifecycle()
     var screen by rememberSaveable { mutableStateOf<String?>(null) }
     BackHandler(enabled = screen != null) { screen = null }
+
+    // "Done ✓" on the floating panel: mark posted and go back to the list for the next item.
+    LaunchedEffect(postedId) {
+        val id = postedId ?: return@LaunchedEffect
+        vm.updateItem(id) { it.copy(status = Status.POSTED) }
+        screen = null
+        onPostedHandled()
+    }
 
     when (val current = screen) {
         null -> ItemListScreen(state, vm, onOpen = { screen = it }, onSettings = { screen = SETTINGS })
@@ -139,10 +155,11 @@ private fun StatusCards(state: UiState, vm: AppViewModel) {
     }
 }
 
-private fun statusLabel(s: Status) = when (s) {
-    Status.DRAFT -> "Draft"
-    Status.READY -> "Ready to post"
-    Status.POSTED -> "Posted"
+private fun statusLabel(item: Item) = when {
+    item.status == Status.POSTED -> "Posted"
+    item.checked -> "Checked ✓"
+    item.status == Status.READY -> "Needs your check"
+    else -> "Draft"
 }
 
 // ---- list -----------------------------------------------------------------
@@ -160,6 +177,7 @@ private fun ItemListScreen(state: UiState, vm: AppViewModel, onOpen: (String) ->
     }
     val idle = state.busy == null
     val pending = state.items.count { it.description.isBlank() && it.status != Status.POSTED }
+    val share = rememberMarketplaceSharer(vm, state.settings)
 
     Scaffold(
         topBar = {
@@ -235,7 +253,14 @@ private fun ItemListScreen(state: UiState, vm: AppViewModel, onOpen: (String) ->
             }
             itemsIndexed(state.items, key = { _, it -> it.id }) { index, item ->
                 Column {
-                    ItemCard(item, generating = state.generatingId == item.id, onClick = { onOpen(item.id) })
+                    ItemCard(
+                        item,
+                        generating = state.generatingId == item.id,
+                        onClick = { onOpen(item.id) },
+                        onShare = if (item.readyToShare() && item.status != Status.POSTED) {
+                            { share(item) }
+                        } else null,
+                    )
                     if (index < state.items.lastIndex) {
                         TextButton(
                             onClick = { vm.mergeWithNext(item.id) },
@@ -250,7 +275,7 @@ private fun ItemListScreen(state: UiState, vm: AppViewModel, onOpen: (String) ->
 }
 
 @Composable
-private fun ItemCard(item: Item, generating: Boolean, onClick: () -> Unit) {
+private fun ItemCard(item: Item, generating: Boolean, onClick: () -> Unit, onShare: (() -> Unit)?) {
     Card(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
             AsyncImage(
@@ -270,7 +295,7 @@ private fun ItemCard(item: Item, generating: Boolean, onClick: () -> Unit) {
                 val count = item.photos.size
                 val price = if (item.price.isNotBlank()) " · ${item.price}" else ""
                 Text(
-                    "$count photo${if (count == 1) "" else "s"} · ${statusLabel(item.status)}$price",
+                    "$count photo${if (count == 1) "" else "s"} · ${statusLabel(item)}$price",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -278,6 +303,14 @@ private fun ItemCard(item: Item, generating: Boolean, onClick: () -> Unit) {
                     Text("Writing…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 } else if (item.description.isNotBlank()) {
                     Text(item.description, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            if (onShare != null) {
+                Spacer(Modifier.width(8.dp))
+                FilledTonalButton(onClick = onShare) {
+                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Share")
                 }
             }
         }
@@ -295,6 +328,7 @@ private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () 
     val idle = state.busy == null
     val index = state.items.indexOfFirst { it.id == item.id }
     var confirmDelete by remember { mutableStateOf(false) }
+    val share = rememberMarketplaceSharer(vm, state.settings)
 
     Scaffold(
         topBar = {
@@ -397,6 +431,45 @@ private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () 
 
             HorizontalDivider()
             Text("Post it", style = MaterialTheme.typography.titleSmall)
+
+            val missing = listOfNotNull(
+                "title".takeIf { item.title.isBlank() },
+                "price".takeIf { item.price.isBlank() },
+                "description".takeIf { item.description.isBlank() },
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Checked", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        if (missing.isEmpty()) "I've reviewed the photos and text."
+                        else "Add ${missing.joinToString(", ")} first.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = item.checked,
+                    onCheckedChange = { on -> vm.updateItem(item.id) { it.copy(checked = on) } },
+                    enabled = item.checked || missing.isEmpty(),
+                )
+            }
+            Button(
+                onClick = { share(item) },
+                enabled = item.readyToShare(),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Share to Marketplace")
+            }
+            Text(
+                "Saves the photos cover-first, copies the description, opens Facebook, and shows a " +
+                    "floating panel with copy buttons for each field.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            Text("Or do it by hand", style = MaterialTheme.typography.labelLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
                     onClick = { clipboard.setText(AnnotatedString(item.title)) },
@@ -412,8 +485,12 @@ private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () 
                 OutlinedButton(
                     onClick = {
                         scope.launch {
-                            val n = withContext(Dispatchers.IO) { Exporter.saveToAlbum(context, item) }
-                            Toast.makeText(context, "Saved $n photos to Pictures/ListingPrep", Toast.LENGTH_SHORT).show()
+                            val saved = withContext(Dispatchers.IO) {
+                                Exporter.deleteExported(context, item.exportedUris)
+                                Exporter.saveToAlbum(context, item)
+                            }
+                            vm.updateItem(item.id) { it.copy(exportedUris = saved.map { u -> u.toString() }) }
+                            Toast.makeText(context, "Saved ${saved.size} photos to Pictures/ListingPrep", Toast.LENGTH_SHORT).show()
                         }
                     },
                     modifier = Modifier.weight(1f),

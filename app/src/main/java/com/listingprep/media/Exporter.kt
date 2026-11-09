@@ -18,11 +18,11 @@ object Exporter {
      * Copies the photos into Pictures/ListingPrep. The cover gets the newest timestamp,
      * so it shows first in Facebook's photo picker (newest-first).
      */
-    fun saveToAlbum(context: Context, item: Item): Int {
+    fun saveToAlbum(context: Context, item: Item): List<Uri> {
         val cr = context.contentResolver
         val now = System.currentTimeMillis()
         val n = item.photos.size
-        var saved = 0
+        val saved = mutableListOf<Uri>()
         item.photos.forEachIndexed { i, p ->
             val src = Uri.parse(p.uri)
             val mime = cr.getType(src) ?: "image/jpeg"
@@ -40,12 +40,17 @@ object Exporter {
             }.isSuccess
             if (ok) {
                 cr.update(dest, ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }, null, null)
-                saved++
+                saved += dest
             } else {
                 cr.delete(dest, null, null)
             }
         }
         return saved
+    }
+
+    /** Removes copies this app saved earlier (the app owns them, so no prompt is needed). */
+    fun deleteExported(context: Context, uris: List<String>) {
+        uris.forEach { runCatching { context.contentResolver.delete(Uri.parse(it), null, null) } }
     }
 
     /** Builds a share-sheet intent with copies of the photos (cover first). */

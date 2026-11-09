@@ -22,7 +22,15 @@ data class Item(
     val notes: String = "",
     val status: Status = Status.DRAFT,
     val createdAt: Long = System.currentTimeMillis(),
+    /** Set by the user after reviewing photos and text. Sharing is locked until this is true. */
+    val checked: Boolean = false,
+    /** Copies saved to Pictures/ListingPrep for the last share, replaced on the next one. */
+    val exportedUris: List<String> = emptyList(),
 )
+
+/** Everything Facebook needs is filled in and a human has signed off. */
+fun Item.readyToShare(): Boolean =
+    checked && photos.isNotEmpty() && title.isNotBlank() && price.isNotBlank() && description.isNotBlank()
 
 data class Settings(
     val footer: String = "Pickup only. Cash or bank transfer. No holds.",
