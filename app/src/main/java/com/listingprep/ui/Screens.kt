@@ -723,11 +723,31 @@ private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () 
                 }
                 if (toneDialog) ToneDialog(onPick = { tone -> toneDialog = false; vm.rewriteTone(item.id, tone) }, onDismiss = { toneDialog = false })
             }
-            Text(
-                "Sharing adds the condition and your footer from Settings.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            // Listing defaults are added at share time (so AI writes and rewrites never drop them):
+            // show exactly what gets added under the description.
+            val added = buildString {
+                if (item.condition.isNotBlank()) append("Condition: ").append(item.condition)
+                if (state.settings.footer.isNotBlank()) {
+                    if (isNotEmpty()) append("
+
+")
+                    append(state.settings.footer.trim())
+                }
+            }
+            if (added.isNotBlank()) Card(
+                Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+            ) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Added to the end when you share", style = MaterialTheme.typography.labelMedium)
+                    Text(added, style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "Change these in Settings → Listing defaults.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
 
             HorizontalDivider()
             Text("Post it", style = MaterialTheme.typography.titleSmall)
