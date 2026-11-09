@@ -85,7 +85,7 @@ data class UiState(
 
 data class PriceHint(val itemId: String, val text: String, val value: String?, val sources: List<String> = emptyList())
 
-data class UpdateUi(val build: Int, val label: String, val progress: Float? = null, val ready: Boolean = false)
+data class UpdateUi(val build: Int, val label: String, val progress: Float? = null, val ready: Boolean = false, val notes: String = "")
 
 data class UndoUi(val message: String, val stamp: Long = System.nanoTime())
 
@@ -529,7 +529,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 )
             },
         )
-        _state.update { it.copy(priceHint = hint) }
+        val value = hint.value
+        if (value != null) {
+            undoable("Price set to ${region.symbol}$value", listOf(id)) { updateItem(id) { it.copy(price = value) } }
+            _state.update { it.copy(priceHint = hint.copy(value = null, text = "Filled in: " + hint.text)) }
+        } else {
+            _state.update { it.copy(priceHint = hint) }
+        }
     }
 
     fun dismissPriceHint() = _state.update { it.copy(priceHint = null) }
@@ -563,6 +569,27 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             listing = Describer.parse(describeOnce(images, prompt))
         }
         listing.takeUnless { Describer.looksBroken(it) }
+    }
+
+    /** Rewrites the title and description in another tone; Undo brings the old text back. */
+    fun rewriteTone(id: String, tone: String) {
+        writingJob = work("Rewriting in a new tone…") {
+            val item = _state.value.items.find { it.id == id } ?: return@work
+            if (item.description.isBlank()) return@work
+            val path = _state.value.modelPath ?: throw IllegalStateException("No AI model yet. Add one in Settings.")
+            _state.update { it.copy(generatingId = id) }
+            val listing = withContext(Dispatchers.Default) {
+                if (!describer.isLoaded(path)) {
+                    progress("Loading AI model…", null)
+                    describeLock.withLock { describer.ensureLoaded(path) }
+                    progress("Rewriting in a new tone…", null)
+                }
+                writeListing(path, emptyList(), Describer.rewritePrompt(item.title, item.description, tone))
+            } ?: throw IllegalStateException("The rewrite didn't come out right, so your text was kept. Try again or pick another tone.")
+            undoable("Rewritten in a new tone", listOf(id)) {
+                updateItem(id) { it.copy(title = listing.title.ifBlank { it.title }, description = listing.description, checked = false) }
+            }
+        }
     }
 
     /** Stops writing descriptions (the one in progress is discarded). */
@@ -938,13 +965,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 if (manual) _state.update { it.copy(updateNote = "You're on the latest build (${Updater.installedBuild(ctx)}).") }
                 return@launch
             }
-            _state.update { it.copy(update = UpdateUi(r.build, "Downloading build ${r.build}…", 0f)) }
+            _state.update { it.copy(update = UpdateUi(r.build, "Downloading build ${r.build}…", 0f, notes = r.notes)) }
             var last = 0L
             val apk = withContext(Dispatchers.IO) {
                 runCatching {
                     Updater.download(ctx, r) { p ->
                         val now = System.currentTimeMillis()
-                        if (now - last > 400) { last = now; _state.update { it.copy(update = UpdateUi(r.build, "Downloading build ${r.build}…", p)) } }
+                        if (now - last > 400) { last = now; _state.update { it.copy(update = UpdateUi(r.build, "Downloading build ${r.build}…", p, notes = r.notes)) } }
                     }
                 }
             }.getOrElse {
@@ -954,7 +981,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 return@launch
             }
             updateApk = apk
-            _state.update { it.copy(update = UpdateUi(r.build, "Build ${r.build} is ready. It installs when you leave the app.", ready = true)) }
+            _state.update { it.copy(update = UpdateUi(r.build, "Build ${r.build} is ready. It installs when you leave the app.", ready = true, notes = r.notes)) }
         }
     }
 

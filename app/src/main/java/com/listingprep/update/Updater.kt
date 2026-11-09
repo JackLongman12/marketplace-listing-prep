@@ -33,7 +33,7 @@ object Updater {
     private val HOSTS = setOf("api.github.com", "github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com")
     private const val MAX_APK = 250L * 1024 * 1024
 
-    data class Release(val build: Int, val apkUrl: String, val shaUrl: String, val size: Long)
+    data class Release(val build: Int, val apkUrl: String, val shaUrl: String, val size: Long, val notes: String = "")
 
     fun installedBuild(context: Context): Long =
         context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode
@@ -57,7 +57,14 @@ object Updater {
         }
         val (apkUrl, size) = apk ?: return null
         if (sha == null || size <= 0 || size > MAX_APK) return null
-        return Release(build, apkUrl, sha, size)
+        // "What's new" from the release page, as plain text (untrusted: shortened, no markup).
+        val notes = json.optString("body")
+            .substringAfter("## What's new", json.optString("body"))
+            .substringBefore("\n---")
+            .lines().map { it.trim().removePrefix("### ").replace("**", "") }
+            .filter { line -> line.isNotEmpty() && line.none { it.isISOControl() } }
+            .joinToString("\n").take(2000)
+        return Release(build, apkUrl, sha, size, notes)
     }
 
     /** Blocking. Downloads and fully verifies; returns the APK, or throws with a reason. */

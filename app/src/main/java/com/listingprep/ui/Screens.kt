@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -652,9 +653,16 @@ private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () 
                 modifier = Modifier.fillMaxWidth(),
             )
             if (item.description.isNotBlank() || item.title.isNotBlank()) {
-                TextButton(onClick = { vm.clearDescription(item.id) }, enabled = state.generatingId != item.id) {
-                    Text("Delete title & description")
+                var toneDialog by remember { mutableStateOf(false) }
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (item.description.isNotBlank()) {
+                        TextButton(onClick = { toneDialog = true }, enabled = idle && state.modelPath != null) { Text("Rewrite in another tone") }
+                    }
+                    TextButton(onClick = { vm.clearDescription(item.id) }, enabled = state.generatingId != item.id) {
+                        Text("Delete text")
+                    }
                 }
+                if (toneDialog) ToneDialog(onPick = { tone -> toneDialog = false; vm.rewriteTone(item.id, tone) }, onDismiss = { toneDialog = false })
             }
             Text(
                 "Sharing adds the condition and your footer from Settings.",
@@ -945,6 +953,9 @@ private fun UpdateCard(update: UpdateUi, vm: AppViewModel) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(update.label, style = MaterialTheme.typography.bodyMedium)
+            if (update.notes.isNotBlank()) {
+                Text(update.notes.lineSequence().first(), style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
             update.progress?.let { p -> if (!update.ready) LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth()) }
             if (update.ready) {
                 if (vm.canInstallUpdates()) {
@@ -978,6 +989,14 @@ private fun UpdatePopup(state: UiState, vm: AppViewModel) {
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(u?.label ?: state.updateNote.orEmpty())
+                if (u != null && u.notes.isNotBlank()) {
+                    Text("What's new", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        u.notes,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.heightIn(max = 260.dp).verticalScroll(rememberScrollState()),
+                    )
+                }
                 if (u != null && !u.ready) {
                     val p = u.progress
                     if (p != null) LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth())
@@ -1049,5 +1068,35 @@ private fun PriceKeyDialog(vm: AppViewModel, onDone: (saved: Boolean) -> Unit) {
             TextButton(onClick = { vm.savePriceKey(key); onDone(true) }, enabled = key.length > 20) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = { onDone(false) }) { Text("Cancel") } },
+    )
+}
+
+/** Pick a tone (or describe your own) for "Rewrite in another tone". */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ToneDialog(onPick: (String) -> Unit, onDismiss: () -> Unit) {
+    var custom by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Rewrite in another tone") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Same facts, new wording. Undo brings the old text back.", style = MaterialTheme.typography.bodySmall)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    STYLE_PRESETS.filter { it.second.isNotBlank() }.forEach { (label, text) ->
+                        FilterChip(selected = false, onClick = { onPick(text) }, label = { Text(label) })
+                    }
+                }
+                OutlinedTextField(
+                    value = custom,
+                    onValueChange = { custom = it.take(300) },
+                    label = { Text("Or describe the tone") },
+                    placeholder = { Text("e.g. enthusiastic, mention it's barely used") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = { onPick(custom) }, enabled = custom.isNotBlank()) { Text("Rewrite") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }

@@ -204,6 +204,22 @@ class Describer(private val context: Context) : Closeable {
             }
         }
 
+        /** Text-only rewrite of an existing listing in another tone (fast: no photo to look at). */
+        fun rewritePrompt(title: String, description: String, tone: String): String = buildString {
+            appendLine("Rewrite this Facebook Marketplace listing in a different tone.")
+            appendLine("Tone wanted: ${tone.trim().take(400)}")
+            appendLine("Keep every fact exactly (brand, model, size, condition, flaws, what's included). Do not add any new facts, prices, pickup or payment details. English only, no emojis or hashtags.")
+            appendLine()
+            appendLine("LISTING:")
+            appendLine("TITLE: ${title.trim().take(120)}")
+            appendLine("DESCRIPTION:")
+            appendLine(description.trim().take(2500))
+            appendLine()
+            appendLine("Answer in exactly this format:")
+            appendLine("TITLE: <rewritten title, under 70 characters>")
+            appendLine("DESCRIPTION: <rewritten description; keep short \"- \" lines for the details>")
+        }
+
         data class Listing(val title: String, val description: String, val identified: Boolean)
 
         /** Splits the model's answer into title, description and whether it knew the product. */
