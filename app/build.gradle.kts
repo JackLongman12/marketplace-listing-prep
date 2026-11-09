@@ -118,13 +118,13 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:1.4.1")
     implementation("androidx.camera:camera-view:1.4.1")
 
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.11.0")
 
     // On-device ML: photo grouping, text reading, and the Gemma 3n language model.
     implementation("com.google.mediapipe:tasks-vision:0.10.29")
-    implementation("com.google.mediapipe:tasks-genai:0.10.29")
+    implementation("com.google.mediapipe:tasks-genai:0.10.35")
     implementation("com.google.mlkit:text-recognition:16.0.1")
     implementation("com.google.mlkit:barcode-scanning:17.3.0") // barcodes and QR codes, model bundled
-    implementation("com.google.mlkit:genai-prompt:1.0.0-beta2") // (newer betas need Kotlin 2.3+) the phone's built-in Gemini Nano (AICore)
+    implementation("com.google.mlkit:genai-prompt:1.0.0-beta5") // (newer betas need Kotlin 2.3+) the phone's built-in Gemini Nano (AICore)
 }
