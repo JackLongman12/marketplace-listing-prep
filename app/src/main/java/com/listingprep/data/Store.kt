@@ -31,6 +31,7 @@ class Store(context: Context) {
         onlineLookup = prefs.getBoolean("onlineLookup", true),
         autoWrite = prefs.getBoolean("autoWrite", true),
         autoUpdate = prefs.getBoolean("autoUpdate", true),
+        cloudWriting = prefs.getBoolean("cloudWriting", false),
         region = prefs.getString("region", null) ?: "",
         city = prefs.getString("city", null) ?: "",
         area = prefs.getString("area", null) ?: "",
@@ -45,6 +46,7 @@ class Store(context: Context) {
             .putBoolean("onlineLookup", s.onlineLookup)
             .putBoolean("autoWrite", s.autoWrite)
             .putBoolean("autoUpdate", s.autoUpdate)
+            .putBoolean("cloudWriting", s.cloudWriting)
             .putString("region", s.region)
             .putString("city", s.city)
             .putString("area", s.area)
@@ -70,6 +72,15 @@ class Store(context: Context) {
                 if (v.isNullOrBlank()) remove("geminiKeyEnc") else putString("geminiKeyEnc", TokenVault.encrypt(v.trim()))
             }.apply()
         }
+
+    /** Build the user last opened, and the notes of the update being installed, for the "Updated" pop-up. */
+    var lastSeenBuild: Long
+        get() = prefs.getLong("lastSeenBuild", 0L)
+        set(v) { prefs.edit().putLong("lastSeenBuild", v).apply() }
+
+    var pendingNotes: Pair<Int, String>?
+        get() = prefs.getInt("pendingNotesBuild", 0).takeIf { it > 0 }?.let { it to prefs.getString("pendingNotes", "").orEmpty() }
+        set(v) { prefs.edit().putInt("pendingNotesBuild", v?.first ?: 0).putString("pendingNotes", v?.second.orEmpty()).apply() }
 
     var lastUpdateCheck: Long
         get() = prefs.getLong("lastUpdateCheck", 0L)

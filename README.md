@@ -15,6 +15,7 @@ Turn a pile of photos into ready-to-post Facebook Marketplace listings, entirely
 - **Your writing style.** Settings → *AI writing style* sets how every description reads (presets or your own instructions).
 - **Background clean-up.** After shooting you see a white-background preview of each photo and pick: this photo, all photos, or none. The original is always kept.
 - **Undo.** Deleting, merging and status changes show an Undo bar.
+- **Write with Google (optional).** Off by default. With your Google AI key, descriptions can be written by Gemini instead of on the phone (faster, sends photos to Google); it falls back to the phone when Google's free limit is reached.
 - **Price help (optional).** *Find typical second-hand price* asks Google's AI search what the item sells for used where you live (your own free Google AI Studio key; sends title, condition and location).
 - **Bulk select.** Long-press items to merge, mark posted/sold, or delete several at once.
 - **You check it.** Each item has a *Checked* switch; sharing stays locked until you've reviewed the photos and text.

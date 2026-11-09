@@ -151,6 +151,26 @@ fun App(
         }
     }
     if (state.updatePopup) UpdatePopup(state, vm)
+    state.justUpdated?.let { u ->
+        AlertDialog(
+            onDismissRequest = vm::dismissJustUpdated,
+            title = { Text("App updated ✓") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(u.label)
+                    if (u.notes.isNotBlank()) {
+                        Text("What changed", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            u.notes,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.heightIn(max = 300.dp).verticalScroll(rememberScrollState()),
+                        )
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = vm::dismissJustUpdated) { Text("OK") } },
+        )
+    }
     SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 72.dp))
     }
 }
@@ -324,7 +344,7 @@ private fun ItemListScreen(
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Delete all sold items and their photos") }
             }
-            if (tab == Tab.ACTIVE && state.modelPath != null && pending > 0) {
+            if (tab == Tab.ACTIVE && state.canWrite && pending > 0) {
                 item(key = "write", contentType = "write") {
                     Card(Modifier.fillMaxWidth()) {
                         Row(Modifier.padding(start = 12.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -338,7 +358,7 @@ private fun ItemListScreen(
                     }
                 }
             }
-            if (state.modelPath == null) {
+            if (state.modelPath == null && !state.canWrite) {
                 item {
                     val download = state.download
                     Card(Modifier.fillMaxWidth()) {
@@ -531,7 +551,7 @@ private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () 
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                 },
                 actions = {
-                    IconButton(onClick = { confirmRefresh = true }, enabled = idle && state.modelPath != null) {
+                    IconButton(onClick = { confirmRefresh = true }, enabled = idle && state.canWrite) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh everything for this item")
                     }
                     IconButton(onClick = { deleter(listOf(item.id)) }) { Icon(Icons.Default.Delete, contentDescription = "Delete item") }
@@ -620,10 +640,10 @@ private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () 
             // Only offered while there's no description yet: once written, edit it by hand.
             if (item.description.isBlank()) Button(
                 onClick = { vm.generate(item.id) },
-                enabled = idle && state.modelPath != null,
+                enabled = idle && state.canWrite,
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Write description") }
-            if (state.modelPath == null && item.description.isBlank()) {
+            if (!state.canWrite && item.description.isBlank()) {
                 Text(
                     "Add the AI model in Settings to write descriptions.",
                     style = MaterialTheme.typography.bodySmall,
@@ -695,7 +715,7 @@ private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () 
                 var toneDialog by remember { mutableStateOf(false) }
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (item.description.isNotBlank()) {
-                        TextButton(onClick = { toneDialog = true }, enabled = idle && state.modelPath != null) { Text("Rewrite in another tone") }
+                        TextButton(onClick = { toneDialog = true }, enabled = idle && state.canWrite) { Text("Rewrite in another tone") }
                     }
                     TextButton(onClick = { vm.clearDescription(item.id) }, enabled = state.generatingId != item.id) {
                         Text("Delete text")
@@ -916,11 +936,11 @@ private fun SettingsScreen(state: UiState, vm: AppViewModel, onBack: () -> Unit)
             )
 
             HorizontalDivider()
-            Text("Price search", style = MaterialTheme.typography.titleMedium)
+            Text("Google AI (optional)", style = MaterialTheme.typography.titleMedium)
             var keysDialog by remember { mutableStateOf(false) }
             Text(
-                if (state.hasPriceKey) "Google AI search is set up (key stored encrypted). Sends an item's title, condition and your location when you tap Find price."
-                else "Optional: Google's AI search looks up what an item sells for second-hand where you live.",
+                if (state.hasPriceKey) "Google AI key saved (encrypted). Used for the price search, and for writing if you turn that on below."
+                else "Optional: a free Google AI Studio key enables the second-hand price search, and optional writing with Google.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -929,6 +949,35 @@ private fun SettingsScreen(state: UiState, vm: AppViewModel, onBack: () -> Unit)
                 if (state.hasPriceKey) TextButton(onClick = { vm.savePriceKey("") }) { Text("Remove key") }
             }
             if (keysDialog) PriceKeyDialog(vm, onDone = { keysDialog = false })
+            var confirmCloud by remember { mutableStateOf(false) }
+            SettingSwitch(
+                title = "Write descriptions with Google",
+                detail = if (state.hasPriceKey) {
+                    "Faster and usually better than the phone, but up to 3 photos per item, the text read from them and your notes " +
+                        "are sent to Google (Gemini). On the free tier Google may use them to improve its products. If Google's " +
+                        "limit is reached or you're offline, the phone writes instead."
+                } else "Needs the Google AI key above.",
+                checked = state.settings.cloudWriting,
+                onChange = { on -> if (on) confirmCloud = true else vm.updateSettings { it.copy(cloudWriting = false) } },
+            )
+            if (confirmCloud) AlertDialog(
+                onDismissRequest = { confirmCloud = false },
+                title = { Text("Send photos to Google?") },
+                text = {
+                    Text(
+                        "With this on, writing a description uploads up to 3 of the item's photos (re-saved without location data), " +
+                            "the text read from them, your notes and your location to Google's Gemini API. Nothing else changes: " +
+                            "you can switch back to on-phone writing any time."
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = { confirmCloud = false; vm.updateSettings { it.copy(cloudWriting = true) } },
+                        enabled = state.hasPriceKey,
+                    ) { Text("Turn on") }
+                },
+                dismissButton = { TextButton(onClick = { confirmCloud = false }) { Text("Cancel") } },
+            )
 
             HorizontalDivider()
             Text("Updates", style = MaterialTheme.typography.titleMedium)
@@ -991,21 +1040,22 @@ private fun UpdateCard(update: UpdateUi, vm: AppViewModel) {
     val context = LocalContext.current
     var canInstall by remember { mutableStateOf(vm.canInstallUpdates()) }
     androidx.lifecycle.compose.LifecycleResumeEffect(Unit) { canInstall = vm.canInstallUpdates(); onPauseOrDispose { } }
-    Card(Modifier.fillMaxWidth()) {
+    Card(
+        Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+    ) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Update available: build ${update.build}", style = MaterialTheme.typography.titleSmall)
             Text(update.label, style = MaterialTheme.typography.bodyMedium)
             if (update.notes.isNotBlank()) {
                 Text(update.notes.lineSequence().first(), style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             update.progress?.let { p -> if (!update.ready) LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth()) }
-            if (update.ready) {
-                if (canInstall) {
-                    Button(onClick = vm::openUpdatePopup) { Text("See what's new & install") }
-                } else {
-                    Text(
-                        "One-time step: allow Listing Prep to install its own updates.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+            when {
+                update.offerOnly -> Button(onClick = { vm.checkForUpdate() }) { Text("Download & see what's new") }
+                update.ready && canInstall -> Button(onClick = vm::openUpdatePopup) { Text("See what's new & install") }
+                update.ready -> {
+                    Text("One-time step: allow Listing Prep to install its own updates.", style = MaterialTheme.typography.bodySmall)
                     OutlinedButton(onClick = {
                         context.startActivity(
                             android.content.Intent(
@@ -1079,7 +1129,7 @@ private fun PriceKeyDialog(vm: AppViewModel, onDone: (saved: Boolean) -> Unit) {
     var key by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = { onDone(false) },
-        title = { Text("Price search setup") },
+        title = { Text("Google AI key") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(

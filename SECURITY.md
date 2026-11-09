@@ -24,6 +24,10 @@ Please report security issues privately through GitHub:
   title, condition and your Settings location to `generativelanguage.googleapis.com` only
   (Gemini with Google Search), over HTTPS, no redirects, replies capped at 1 MB. No photos,
   description or notes. On Google's free tier Google may use requests to improve its products.
+- **Write with Google (off by default).** If you turn it on (Settings → Google AI, with a
+  confirmation), writing a description sends up to 3 of the item's photos (re-encoded, no EXIF or
+  location), the text read from them, your notes and your location to Google's Gemini API, over
+  HTTPS to the same single host. When it's off, nothing about your photos leaves the phone.
 - **App updates.** The app reads this repo's latest release from `api.github.com` and
   downloads the APK from GitHub's hosts (HTTPS, no token, nothing about you sent). Before
   installing it checks the published SHA-256, that the package name matches, that the build

@@ -32,6 +32,7 @@ import com.listingprep.ml.Ocr
 import com.listingprep.ml.Codes
 import com.listingprep.ml.ProductLookup
 import com.listingprep.ml.PriceLookup
+import com.listingprep.ml.Gemini
 import com.listingprep.data.Photo
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -81,11 +82,24 @@ data class UiState(
     val hasPriceKey: Boolean = false,
     /** Result of "Find second-hand price" for one item. */
     val priceHint: PriceHint? = null,
-)
+    /** Shown once after the app updated itself: the new build and what changed. */
+    val justUpdated: UpdateUi? = null,
+) {
+    /** Descriptions can be written: the on-phone model is there, or Google writing is on with a key. */
+    val canWrite: Boolean get() = modelPath != null || (settings.cloudWriting && hasPriceKey)
+}
 
 data class PriceHint(val itemId: String, val text: String, val value: String?, val sources: List<String> = emptyList())
 
-data class UpdateUi(val build: Int, val label: String, val progress: Float? = null, val ready: Boolean = false, val notes: String = "")
+data class UpdateUi(
+    val build: Int,
+    val label: String,
+    val progress: Float? = null,
+    val ready: Boolean = false,
+    val notes: String = "",
+    /** Found but not downloaded (auto-update is off). */
+    val offerOnly: Boolean = false,
+)
 
 data class UndoUi(val message: String, val stamp: Long = System.nanoTime())
 
@@ -122,9 +136,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         moveModelToKeptStorage()
         viewModelScope.launch { WritingService.stopRequests.collect { if (it > 0) stopWriting() } }
         viewModelScope.launch { UpdateState.error.collect { e -> if (e != null) { showError(e); UpdateState.error.value = null } } }
-        if (_state.value.settings.autoUpdate && System.currentTimeMillis() - store.lastUpdateCheck > 6 * 60 * 60 * 1000L) {
-            checkForUpdate(manual = false)
-        }
+        announceUpdate()
+        if (System.currentTimeMillis() - store.lastUpdateCheck > 30 * 60 * 1000L) checkForUpdate(manual = false)
         // Leftover from builds that had a "Share photos" button.
         viewModelScope.launch(Dispatchers.IO) {
             File(app.cacheDir, "share").deleteRecursively()
@@ -317,7 +330,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** After shooting: write the new items' descriptions in the background, if that's on. */
     fun autoWrite() {
-        if (_state.value.settings.autoWrite && _state.value.modelPath != null) generateAll()
+        if (_state.value.settings.autoWrite && _state.value.canWrite) generateAll()
     }
 
     fun setCover(id: String, index: Int) = updateItem(id) { item ->
@@ -523,7 +536,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             onFailure = { e ->
                 PriceHint(
                     id,
-                    if (e is PriceLookup.BadKey) "Google didn't accept the API key. Check it in Settings → Price search."
+                    if (e is Gemini.BadKey) "Google didn't accept the API key. Check it in Settings → Google AI."
                     else "Price search failed: ${e.message}",
                     null,
                 )
@@ -576,15 +589,23 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         writingJob = work("Rewriting in a new tone…") {
             val item = _state.value.items.find { it.id == id } ?: return@work
             if (item.description.isBlank()) return@work
-            val path = _state.value.modelPath ?: throw IllegalStateException("No AI model yet. Add one in Settings.")
+            val key = store.geminiKey?.takeIf { _state.value.settings.cloudWriting }
+            val prompt = Describer.rewritePrompt(item.title, item.description, tone)
             _state.update { it.copy(generatingId = id) }
-            val listing = withContext(Dispatchers.Default) {
-                if (!describer.isLoaded(path)) {
+            val fromCloud = key?.let {
+                runCatching {
+                    withContext(Dispatchers.IO) { Gemini.generate(it, listOf(Gemini.textPart(prompt)), search = false, temperature = 0.5) }
+                }.getOrNull()?.let { a -> Describer.parse(a.text).takeUnless { l -> Describer.looksBroken(l) } }
+            }
+            val path = _state.value.modelPath
+            if (fromCloud == null && path == null) throw IllegalStateException("No AI model yet. Add one in Settings, or turn on writing with Google.")
+            val listing = fromCloud ?: withContext(Dispatchers.Default) {
+                if (!describer.isLoaded(path!!)) {
                     progress("Loading AI model…", null)
                     describeLock.withLock { describer.ensureLoaded(path) }
                     progress("Rewriting in a new tone…", null)
                 }
-                writeListing(path, emptyList(), Describer.rewritePrompt(item.title, item.description, tone))
+                writeListing(path, emptyList(), prompt)
             } ?: throw IllegalStateException("The rewrite didn't come out right, so your text was kept. Try again or pick another tone.")
             undoable("Rewritten in a new tone", listOf(id)) {
                 updateItem(id) { it.copy(title = listing.title.ifBlank { it.title }, description = listing.description, checked = false) }
@@ -674,39 +695,63 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private suspend fun generateOne(id: String, ready: Deferred<Analysis>? = null) {
         val item = _state.value.items.find { it.id == id } ?: return
+        val settings = _state.value.settings
+        val key = store.geminiKey?.takeIf { settings.cloudWriting }
         val path = _state.value.modelPath
-            ?: throw IllegalStateException("No AI model yet. Add one in Settings.")
+        if (key == null && path == null) throw IllegalStateException("No AI model yet. Add one in Settings, or turn on writing with Google.")
         _state.update { it.copy(generatingId = id) }
         val label = _state.value.busy
         val listing = withContext(Dispatchers.Default) {
             val pending = ready ?: async { analyze(item) } // reads photos while the model loads
-            if (!describer.isLoaded(path)) {
-                progress("Loading AI model (first time takes a few seconds)…", null)
-                describeLock.withLock { describer.ensureLoaded(path) }
-                progress(label ?: "Writing description…", _state.value.progress)
-            }
             val analysis = pending.await()
-            val ocrText = analysis.ocr
             val codes = analysis.codes
             if (codes != item.codes) updateItem(id) { it.copy(codes = codes) }
-            val llmImages = listOfNotNull(analysis.cover)
-            val style = _state.value.settings.writingStyle
-            val place = Regions.describe(_state.value.settings)
+            val style = settings.writingStyle
+            val place = Regions.describe(settings)
             var known = item.copy(codes = codes)
-            var result = writeListing(path, llmImages, Describer.prompt(known, ocrText, style, place))
+            var cloudFailed: String? = null
+
+            // One attempt with whichever engine is in use; Google falls back to the phone if it can't answer.
+            suspend fun attempt(): Describer.Companion.Listing? {
+                val prompt = Describer.prompt(known, analysis.ocr, style, place)
+                if (key != null && cloudFailed == null) {
+                    try {
+                        return cloudListing(key, item, prompt)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        cloudFailed = when (e) {
+                            is Gemini.RateLimited -> "Google's free limit was reached"
+                            is Gemini.BadKey -> "Google didn't accept the API key"
+                            else -> "Google couldn't be reached (${e.message})"
+                        }
+                        if (path == null) throw IllegalStateException("$cloudFailed, and there's no on-phone model to fall back on.")
+                        progress("$cloudFailed, so this one is written on the phone…", _state.value.progress)
+                    }
+                }
+                val p = path ?: return null
+                if (!describer.isLoaded(p)) {
+                    progress("Loading AI model (first time takes a few seconds)…", null)
+                    describeLock.withLock { describer.ensureLoaded(p) }
+                    progress(label ?: "Writing description…", _state.value.progress)
+                }
+                return writeListing(p, listOfNotNull(analysis.cover), prompt)
+            }
+
+            var result = attempt()
             // The AI couldn't tell what it is: look the barcode number up online (if allowed) and try once more.
             val code = ProductLookup.retailCode(codes)
-            if (result != null && !result.identified && code != null && known.product.isBlank() && _state.value.settings.onlineLookup) {
+            if (result != null && !result.identified && code != null && known.product.isBlank() && settings.onlineLookup) {
                 progress("Looking up the barcode online…", _state.value.progress)
                 val product = withContext(Dispatchers.IO) { runCatching { ProductLookup.lookup(code) }.getOrNull() }
                 if (product != null) {
                     updateItem(id) { it.copy(product = product) }
                     known = known.copy(product = product)
                     progress(label ?: "Writing description…", _state.value.progress)
-                    result = writeListing(path, llmImages, Describer.prompt(known, ocrText, style, place)) ?: result
+                    result = attempt() ?: result
                 }
             }
-            llmImages.forEach { it.recycle() }
+            analysis.cover?.recycle()
             result ?: throw IllegalStateException(
                 "The AI's answer didn't make sense, so it wasn't saved. Add a few words in Notes " +
                     "(what the item is) and tap Write description again."
@@ -720,6 +765,20 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
         _state.update { it.copy(generatingId = null) }
+    }
+
+    /**
+     * Writes with Google Gemini: the same instructions as on the phone, plus up to three photos
+     * (cover first) re-encoded as fresh JPEGs, so no EXIF or location goes along. Opt-in only.
+     */
+    private suspend fun cloudListing(key: String, item: Item, prompt: String): Describer.Companion.Listing? {
+        val cr = ctx.contentResolver
+        val photos = item.photos.take(3).mapNotNull { p ->
+            runCatching { MediaInfo.decode(cr, Uri.parse(p.shown), 1024) }.getOrNull()
+        }
+        val parts = photos.map { bmp -> Gemini.imagePart(bmp).also { bmp.recycle() } } + Gemini.textPart(prompt)
+        val answer = withContext(Dispatchers.IO) { Gemini.generate(key, parts, search = false, temperature = 0.3) }
+        return Describer.parse(answer.text).takeUnless { Describer.looksBroken(it) }
     }
 
     /** Reads barcodes / QR codes from every photo (the code is often on just one angle). */
@@ -971,6 +1030,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Checks GitHub for a newer build and downloads + verifies it. */
     fun checkForUpdate(manual: Boolean = true) {
         if (updateJob?.isActive == true) return
+        if (manual && _state.value.update?.offerOnly == true) _state.update { it.copy(update = null) }
         updateJob = viewModelScope.launch {
             if (manual) _state.update { it.copy(updatePopup = true, updateNote = "Checking for updates…") }
             val release = withContext(Dispatchers.IO) { runCatching { Updater.check(ctx) } }
@@ -983,6 +1043,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             if (r == null) {
                 _state.update { it.copy(update = null) }
                 if (manual) _state.update { it.copy(updateNote = "You're on the latest build (${Updater.installedBuild(ctx)}).") }
+                return@launch
+            }
+            if (!manual && !_state.value.settings.autoUpdate) {
+                // Auto-update is off: just suggest it on the home screen; downloading waits for a tap.
+                _state.update { it.copy(update = UpdateUi(r.build, "Build ${r.build} is available.", notes = r.notes, offerOnly = true)) }
                 return@launch
             }
             _state.update { it.copy(update = UpdateUi(r.build, "Downloading build ${r.build}…", 0f, notes = r.notes)) }
@@ -1002,6 +1067,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
             updateApk = apk
             installOnLeave = false
+            store.pendingNotes = r.build to r.notes
             _state.update {
                 it.copy(
                     update = UpdateUi(r.build, "Build ${r.build} is ready to install.", ready = true, notes = r.notes),
@@ -1013,6 +1079,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun canInstallUpdates() = Updater.canInstall(ctx)
+
+    /** After an update, the first launch says so (with what changed) instead of you checking Settings. */
+    private fun announceUpdate() {
+        val installed = Updater.installedBuild(ctx)
+        val seen = store.lastSeenBuild
+        store.lastSeenBuild = installed
+        if (seen <= 0L || installed <= seen) return // first install, or nothing new
+        val notes = store.pendingNotes?.takeIf { it.first.toLong() == installed }?.second.orEmpty()
+        store.pendingNotes = null
+        _state.update { it.copy(justUpdated = UpdateUi(installed.toInt(), "Listing Prep is now on build $installed.", notes = notes)) }
+    }
+
+    fun dismissJustUpdated() = _state.update { it.copy(justUpdated = null) }
 
     fun openUpdatePopup() = _state.update { it.copy(updatePopup = true) }
 

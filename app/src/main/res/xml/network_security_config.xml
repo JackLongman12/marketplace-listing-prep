@@ -7,8 +7,8 @@
   link) and its CDN hosts under hf.co / huggingface.co (no token is sent there).
   Barcode lookup (only when the AI can't identify an item, can be turned off in Settings):
   api.upcitemdb.com, world.openfoodfacts.org and openlibrary.org receive the barcode number only.
-  Price search (only when you tap it, with your own key): generativelanguage.googleapis.com,
-  item title, condition and your location only.
+  Google AI (only with your own key): generativelanguage.googleapis.com. Price search sends
+  the title, condition and location; optional "Write with Google" also sends up to 3 photos.
   App updates: api.github.com, github.com and GitHub's download hosts (release files only).
   Plain HTTP is disabled everywhere.
 -->
