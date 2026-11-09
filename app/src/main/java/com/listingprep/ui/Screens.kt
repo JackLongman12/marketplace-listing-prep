@@ -392,11 +392,18 @@ private fun ItemListScreen(
                         onClick = { if (selecting) toggle(item.id) else onOpen(item.id) },
                         onLongClick = { toggle(item.id) },
                         selected = if (selecting) item.id in selected else null,
-                        action = if (selecting) null else when {
-                            item.isActive && item.readyToShare() -> "Share" to { share(item) }
-                            item.status == Status.POSTED -> "Sold" to { vm.markSold(item.id) }
-                            item.status == Status.SOLD -> "Delete" to { deleter(listOf(item.id)) }
+                        actionLabel = if (selecting) null else when {
+                            item.isActive && item.readyToShare() -> "Share"
+                            item.status == Status.POSTED -> "Sold"
+                            item.status == Status.SOLD -> "Delete"
                             else -> null
+                        },
+                        onAction = {
+                            when {
+                                item.isActive -> share(item)
+                                item.status == Status.POSTED -> vm.markSold(item.id)
+                                else -> deleter(listOf(item.id))
+                            }
                         },
                     )
                     val next = shown.getOrNull(index + 1)
@@ -433,7 +440,8 @@ private fun ItemCard(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     selected: Boolean?,
-    action: Pair<String, () -> Unit>?,
+    actionLabel: String?,
+    onAction: () -> Unit,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth().clip(CardDefaults.shape).combinedClickable(onClick = onClick, onLongClick = onLongClick),
@@ -444,8 +452,13 @@ private fun ItemCard(
             if (selected != null) {
                 Checkbox(checked = selected, onCheckedChange = { onClick() })
             }
+            val context = LocalContext.current
+            val cover = item.photos.firstOrNull()?.shown
+            val request = remember(cover) {
+                coil.request.ImageRequest.Builder(context).data(cover?.let(Uri::parse)).size(256).build()
+            }
             AsyncImage(
-                model = item.photos.firstOrNull()?.shown?.let(Uri::parse),
+                model = request,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.size(84.dp).clip(RoundedCornerShape(8.dp)),
@@ -471,14 +484,14 @@ private fun ItemCard(
                     Text(item.description, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
             }
-            if (action != null) {
+            if (actionLabel != null) {
                 Spacer(Modifier.width(8.dp))
-                FilledTonalButton(onClick = action.second) {
-                    if (action.first == "Share") {
+                FilledTonalButton(onClick = onAction) {
+                    if (actionLabel == "Share") {
                         Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
                     }
-                    Text(action.first)
+                    Text(actionLabel)
                 }
             }
         }
@@ -976,6 +989,8 @@ private fun SettingSwitch(title: String, detail: String, checked: Boolean, onCha
 @Composable
 private fun UpdateCard(update: UpdateUi, vm: AppViewModel) {
     val context = LocalContext.current
+    var canInstall by remember { mutableStateOf(vm.canInstallUpdates()) }
+    androidx.lifecycle.compose.LifecycleResumeEffect(Unit) { canInstall = vm.canInstallUpdates(); onPauseOrDispose { } }
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(update.label, style = MaterialTheme.typography.bodyMedium)
@@ -984,7 +999,7 @@ private fun UpdateCard(update: UpdateUi, vm: AppViewModel) {
             }
             update.progress?.let { p -> if (!update.ready) LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth()) }
             if (update.ready) {
-                if (vm.canInstallUpdates()) {
+                if (canInstall) {
                     Button(onClick = vm::openUpdatePopup) { Text("See what's new & install") }
                 } else {
                     Text(

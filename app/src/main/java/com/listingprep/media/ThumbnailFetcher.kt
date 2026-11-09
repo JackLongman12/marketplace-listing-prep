@@ -28,7 +28,10 @@ class ThumbnailFetcher(private val uri: Uri, private val options: Options) : Fet
             val scale = max(target.width.toFloat() / info.size.width, target.height.toFloat() / info.size.height)
             if (scale < 1f) d.setTargetSize((info.size.width * scale).toInt().coerceAtLeast(1), (info.size.height * scale).toInt().coerceAtLeast(1))
         }
-        return DrawableResult(BitmapDrawable(options.context.resources, bitmap), isSampled = true, dataSource = DataSource.DISK)
+        val drawable = if (bitmap.config != android.graphics.Bitmap.Config.HARDWARE) {
+            bitmap.copy(android.graphics.Bitmap.Config.HARDWARE, false)?.also { bitmap.recycle() } ?: bitmap
+        } else bitmap
+        return DrawableResult(BitmapDrawable(options.context.resources, drawable), isSampled = true, dataSource = DataSource.DISK)
     }
 
     private fun targetSize(): Size {

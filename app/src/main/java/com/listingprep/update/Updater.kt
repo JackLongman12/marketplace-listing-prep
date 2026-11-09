@@ -121,7 +121,27 @@ object Updater {
     }
 
     /** Hands the verified APK to Android. Without user action when Android allows it (after the first update). */
-    fun install(context: Context, apk: File) {
+    /** base.dm: the baseline profile the build put inside the APK, in the form the installer reads. */
+    private fun dexMetadata(apk: File): File? = runCatching {
+        java.util.zip.ZipFile(apk).use { zip ->
+            val prof = zip.getEntry("assets/dexopt/baseline.prof") ?: return null
+            val profm = zip.getEntry("assets/dexopt/baseline.profm")
+            val dm = File(apk.parentFile, "base.dm")
+            java.util.zip.ZipOutputStream(dm.outputStream()).use { out ->
+                out.putNextEntry(java.util.zip.ZipEntry("primary.prof"))
+                zip.getInputStream(prof).use { it.copyTo(out) }
+                out.closeEntry()
+                if (profm != null) {
+                    out.putNextEntry(java.util.zip.ZipEntry("primary.profm"))
+                    zip.getInputStream(profm).use { it.copyTo(out) }
+                    out.closeEntry()
+                }
+            }
+            dm
+        }
+    }.getOrNull()
+
+    fun install(context: Context, apk: File, withProfile: Boolean = true) {
         val installer = context.packageManager.packageInstaller
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
             setAppPackageName(context.packageName)
@@ -135,8 +155,17 @@ object Updater {
                 apk.inputStream().use { it.copyTo(out, 256 * 1024) }
                 session.fsync(out)
             }
+            // Android pre-compiles the app's hot code (lists, scrolling) at install time when the
+            // install includes this profile, like Play Store installs do. Smooth from the first launch.
+            if (withProfile) dexMetadata(apk)?.let { dm ->
+                session.openWrite("base.dm", 0, dm.length()).use { out ->
+                    dm.inputStream().use { it.copyTo(out) }
+                    session.fsync(out)
+                }
+                dm.delete()
+            }
             val callback = PendingIntent.getBroadcast(
-                context, id, Intent(context, UpdateReceiver::class.java),
+                context, id, Intent(context, UpdateReceiver::class.java).putExtra(UpdateReceiver.EXTRA_WITH_PROFILE, withProfile),
                 PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT, // the installer adds the result
             )
             session.commit(callback.intentSender)

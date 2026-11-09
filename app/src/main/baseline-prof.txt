@@ -1,0 +1,12 @@
+# Code compiled ahead of time at install (instead of running slowly in the interpreter
+# while you scroll). Wildcards cover the whole UI stack.
+HSPLcom/listingprep/**->**(**)**
+Lcom/listingprep/**;
+HSPLandroidx/compose/**->**(**)**
+Landroidx/compose/**;
+HSPLcoil/**->**(**)**
+Lcoil/**;
+HSPLkotlinx/coroutines/**->**(**)**
+Lkotlinx/coroutines/**;
+HSPLandroidx/lifecycle/**->**(**)**
+Landroidx/lifecycle/**;

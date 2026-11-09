@@ -41,6 +41,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        preferFastestRefreshRate()
         // Privacy: don't keep a snapshot of item photos / token setup in the Recents switcher.
         setRecentsScreenshotEnabled(false)
         postedId.value = intent?.let(::trustedPostedId)
@@ -52,6 +53,21 @@ class MainActivity : ComponentActivity() {
                 Surface(color = MaterialTheme.colorScheme.background) {
                     App(postedId = posted, onPostedHandled = { postedId.value = null })
                 }
+            }
+        }
+    }
+
+    /** Picks the display mode with the highest refresh rate at the current resolution. */
+    private fun preferFastestRefreshRate() {
+        runCatching {
+            val d = display ?: return
+            val now = d.mode
+            val best = d.supportedModes
+                .filter { it.physicalWidth == now.physicalWidth && it.physicalHeight == now.physicalHeight }
+                .maxByOrNull { it.refreshRate } ?: return
+            window.attributes = window.attributes.apply {
+                preferredDisplayModeId = best.modeId
+                preferredRefreshRate = best.refreshRate
             }
         }
     }

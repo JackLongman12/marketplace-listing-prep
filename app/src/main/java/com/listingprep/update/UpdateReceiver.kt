@@ -32,10 +32,20 @@ class UpdateReceiver : BroadcastReceiver() {
             }
             PackageInstaller.STATUS_SUCCESS -> Updater.apkFile(context).delete()
             else -> {
-                Updater.apkFile(context).delete()
+                val message = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE).orEmpty()
+                val apk = Updater.apkFile(context)
+                if (intent.getBooleanExtra(EXTRA_WITH_PROFILE, false) && apk.exists() && message.contains("metadata", ignoreCase = true)) {
+                    runCatching { Updater.install(context, apk, withProfile = false) }
+                    return
+                }
+                apk.delete()
                 UpdateState.failed(intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE) ?: "Android didn't install the update.")
             }
         }
+    }
+
+    companion object {
+        const val EXTRA_WITH_PROFILE = "withProfile"
     }
 
     private fun notifyConfirm(context: Context, confirm: Intent) {
