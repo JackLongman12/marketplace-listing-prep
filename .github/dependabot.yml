@@ -1,13 +1,27 @@
 # Opens pull requests when a pinned GitHub Action or a library has a newer (often
-# security-fix) release. After merging a Gradle update, run the
-# "Regenerate dependency hashes" workflow and commit its output.
+# security-fix) release. Minor and patch updates are grouped into one PR per week;
+# major versions (which usually need code changes) are skipped, but security updates
+# still come through. After merging a Gradle update, run the "Regenerate dependency
+# hashes" workflow and commit its output.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: gradle
     directory: /
     schedule:
       interval: weekly
+    groups:
+      libraries:
+        patterns: ["*"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
