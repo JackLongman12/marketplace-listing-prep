@@ -20,7 +20,7 @@ android {
     }
 
     // Release signing key comes from GitHub secrets (see .github/workflows/build.yml).
-    val signingStore = System.getenv("SIGNING_STORE_FILE")
+    val signingStore = System.getenv("SIGNING_STORE_FILE")?.takeIf { it.isNotBlank() }
     signingConfigs {
         if (signingStore != null) {
             create("release") {

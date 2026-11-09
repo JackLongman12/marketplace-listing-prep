@@ -23,23 +23,33 @@ jobs:
         with:
           gradle-version: '8.11.1'
 
-      - name: Decode signing key
+      - name: Check for signing key
+        id: key
         env:
           KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
-        run: echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::No KEYSTORE_B64 secret yet - compiling only, no release will be published."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Build release APK
         env:
-          SIGNING_STORE_FILE: ${{ runner.temp }}/release.jks
+          SIGNING_STORE_FILE: ${{ steps.key.outputs.present == 'true' && format('{0}/release.jks', runner.temp) || '' }}
           SIGNING_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           SIGNING_KEY_ALIAS: listingprep
           SIGNING_KEY_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
         run: gradle assembleRelease -PversionCode=${{ github.run_number }} --stacktrace
 
       - name: Name the APK
+        if: steps.key.outputs.present == 'true'
         run: cp app/build/outputs/apk/release/app-release.apk "ListingPrep-${{ github.run_number }}.apk"
 
       - uses: softprops/action-gh-release@v2
+        if: steps.key.outputs.present == 'true'
         with:
           tag_name: build-${{ github.run_number }}
           name: Listing Prep build ${{ github.run_number }}
