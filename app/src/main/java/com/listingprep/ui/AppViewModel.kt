@@ -78,6 +78,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     init {
         // Pick up a download that was running (or finished) while the app was closed.
         if (store.modelDownloadId >= 0) watchDownload(store.modelDownloadId)
+        // Temporary share-sheet copies only need to live while the target app reads them.
+        viewModelScope.launch(Dispatchers.IO) {
+            val cutoff = System.currentTimeMillis() - 60 * 60 * 1000L
+            File(app.cacheDir, "share").listFiles()?.filter { it.lastModified() < cutoff }?.forEach { it.delete() }
+        }
     }
 
     // ---- item edits -------------------------------------------------------
@@ -91,10 +96,23 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         setItems { items -> items.map { if (it.id == id) transform(it) else it } }
 
     fun deleteItem(id: String) {
-        _state.value.items.find { it.id == id }?.let { item ->
-            viewModelScope.launch(Dispatchers.IO) { Exporter.deleteExported(ctx, item.exportedUris) }
-        }
+        val item = _state.value.items.find { it.id == id } ?: return
         setItems { items -> items.filterNot { it.id == id } }
+        // After removal, so photos still used by other items keep their access.
+        val remaining = _state.value.items.flatMap { it.photos }.map { it.uri }.toSet()
+        viewModelScope.launch(Dispatchers.IO) {
+            Exporter.deleteExported(ctx, item.exportedUris)
+            releasePhotoAccess(item.photos.map { it.uri }.filterNot { it in remaining })
+        }
+    }
+
+    /** Gives back the long-term read access the photo picker granted for these photos. */
+    private fun releasePhotoAccess(uris: List<String>) {
+        uris.forEach {
+            runCatching {
+                ctx.contentResolver.releasePersistableUriPermission(Uri.parse(it), Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+        }
     }
 
     fun setCover(id: String, index: Int) = updateItem(id) { item ->
@@ -358,9 +376,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             ctx.contentResolver.persistedUriPermissions.forEach {
                 runCatching { ctx.contentResolver.releasePersistableUriPermission(it.uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
             }
-            listOf(ModelFiles.dir(ctx), ctx.filesDir, ctx.cacheDir).forEach { dir ->
-                dir.listFiles()?.forEach { it.deleteRecursively() }
-            }
+            listOf(ModelFiles.dir(ctx), ctx.filesDir, ctx.cacheDir, ctx.noBackupFilesDir, ctx.externalCacheDir)
+                .filterNotNull()
+                .forEach { dir -> dir.listFiles()?.forEach { it.deleteRecursively() } }
+            // Bundled libraries (ML Kit, MediaPipe) keep their own databases and prefs.
+            ctx.databaseList().forEach { ctx.deleteDatabase(it) }
+            File(ctx.dataDir, "shared_prefs").listFiles()
+                ?.filter { it.name != "settings.xml" }
+                ?.forEach { it.delete() }
         }
         store.hfToken = null
         TokenVault.deleteKey()
@@ -439,7 +462,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                         store.modelDownloadId = -1
                         _state.update { it.copy(download = null) }
                         when (result) {
-                            ModelDownloader.Finish.OK -> refreshModelPath()
+                            ModelDownloader.Finish.OK -> {
+                                refreshModelPath()
+                                // The token is only needed to start a download; don't keep a secret we no longer use.
+                                saveHfToken("")
+                            }
                             ModelDownloader.Finish.INCOMPLETE ->
                                 showError("The download finished but the file is incomplete. Tap Download again.")
                             ModelDownloader.Finish.BAD_CHECKSUM ->

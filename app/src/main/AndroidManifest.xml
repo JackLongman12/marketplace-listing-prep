@@ -3,6 +3,9 @@
 
     <!-- Only used for "Today's photos" (reads camera photos taken today). -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <!-- Android 14+: lets you grant access to selected photos only instead of the whole library. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
+    <!-- Deliberately NOT requested: ACCESS_MEDIA_LOCATION, so Android also hides photo GPS from this app. -->
 
     <!-- Floating copy panel shown over Facebook while posting a listing. -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />

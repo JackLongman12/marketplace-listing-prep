@@ -24,6 +24,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // Privacy: don't keep a snapshot of item photos / token setup in the Recents switcher.
+        setRecentsScreenshotEnabled(false)
         postedId.value = intent?.let(::trustedPostedId)
         setContent {
             val context = LocalContext.current

@@ -51,6 +51,25 @@ jobs:
           SIGNING_KEY_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
         run: gradle assembleRelease -PversionCode=${{ github.run_number }} --stacktrace
 
+      # Libraries can quietly add permissions and components via manifest merging; print
+      # what actually ships so changes are visible in every build's summary.
+      - name: Audit permissions and components
+        run: |
+          BT="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
+          APK=app/build/outputs/apk/release/app-release.apk
+          {
+            echo "### Permissions in the APK"
+            echo '```'
+            "$BT/aapt2" dump permissions "$APK"
+            echo '```'
+            echo "### Components (activities, services, receivers, providers)"
+            echo '```'
+            "$BT/aapt2" dump xmltree --file AndroidManifest.xml "$APK" \
+              | grep -E 'E: (activity|service|receiver|provider)|A: .*(:name|exported)' \
+              | grep -vE 'meta-data|intent-filter|action|category|uses-'
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Remove signing key from runner
         if: always()
         run: rm -f "$RUNNER_TEMP/release.jks"

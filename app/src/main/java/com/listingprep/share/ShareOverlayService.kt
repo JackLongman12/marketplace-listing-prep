@@ -67,7 +67,17 @@ class ShareOverlayService : Service() {
 
     override fun onDestroy() {
         removePanel()
+        clearOurClip()
         super.onDestroy()
+    }
+
+    /** Privacy: when posting is over, don't leave the listing text on the clipboard. */
+    private fun clearOurClip() {
+        runCatching {
+            val cm = getSystemService(ClipboardManager::class.java)
+            val label = cm.primaryClipDescription?.label?.toString()
+            if (label in OUR_CLIP_LABELS) cm.clearPrimaryClip()
+        }
     }
 
     private fun goForeground() {
@@ -215,5 +225,7 @@ class ShareOverlayService : Service() {
         private const val ACTION_CLOSE = "com.listingprep.CLOSE_PANEL"
         private const val CHANNEL = "posting_helper"
         private const val NOTIFICATION_ID = 1
+        /** Clip labels this app uses; anything else on the clipboard is left alone. */
+        val OUR_CLIP_LABELS = setOf("Title", "Price", "Description")
     }
 }

@@ -171,9 +171,15 @@ private fun ItemListScreen(state: UiState, vm: AppViewModel, onOpen: (String) ->
     val picker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(MediaStore.getPickImagesMaxLimit())
     ) { uris -> if (uris.isNotEmpty()) vm.importPhotos(uris) }
-    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) vm.importToday()
-        else vm.showError("Allow access to all photos to use Today's, or use Pick photos instead.")
+    // Full or "selected photos only" access both work; with partial access the app only
+    // ever sees the photos you picked in Android's dialog.
+    val photoPermissions = arrayOf(
+        Manifest.permission.READ_MEDIA_IMAGES,
+        Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
+    )
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+        if (result.values.any { it }) vm.importToday()
+        else vm.showError("Allow photo access to use Today's, or use Pick photos instead.")
     }
     val idle = state.busy == null
     val pending = state.items.count { it.description.isBlank() && it.status != Status.POSTED }
@@ -201,9 +207,10 @@ private fun ItemListScreen(state: UiState, vm: AppViewModel, onOpen: (String) ->
                     ) { Text("Pick photos", maxLines = 1) }
                     OutlinedButton(
                         onClick = {
-                            val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) ==
+                            val full = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) ==
                                 PackageManager.PERMISSION_GRANTED
-                            if (granted) vm.importToday() else permission.launch(Manifest.permission.READ_MEDIA_IMAGES)
+                            // With partial access, ask again so you can add today's new photos to the selection.
+                            if (full) vm.importToday() else permission.launch(photoPermissions)
                         },
                         enabled = idle,
                         modifier = Modifier.weight(1f),
