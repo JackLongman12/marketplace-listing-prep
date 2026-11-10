@@ -741,7 +741,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         updateItem(id) { it.copy(product = "", checked = false) }
         writingJob = work("Refreshing this item…") {
             try {
-                generateOne(id)
+                generateOne(id, replacePrice = true)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -787,7 +787,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
             progress("Writing the description…", null)
-            generateOne(id)
+            generateOne(id, replacePrice = true)
         }
     }
 
@@ -851,7 +851,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private suspend fun generateOne(id: String, ready: Deferred<Analysis>? = null) {
+    private suspend fun generateOne(id: String, ready: Deferred<Analysis>? = null, replacePrice: Boolean = false) {
         val item = _state.value.items.find { it.id == id } ?: return
         val settings = _state.value.settings
         val writer = cloudWriter()
@@ -927,7 +927,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 status = if (it.isActive) Status.READY else it.status,
                 unsure = !listing.identified && it.identity.isBlank(),
                 // Known product: start the price at its original retail price (MSRP); change it any time.
-                price = if (it.price.isBlank() && listing.identified) listing.msrp?.let(PriceLookup::round).orEmpty() else it.price,
+                // Start the price at the product's original retail price (MSRP) when the AI gives one.
+                // Refresh and "What is it?" replace the old price; a normal write only fills an empty one.
+                price = listing.msrp?.takeIf { it.price.isBlank() || replacePrice }?.let(PriceLookup::round) ?: it.price,
             )
         }
         _state.update { it.copy(generatingId = null) }

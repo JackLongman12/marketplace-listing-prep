@@ -57,19 +57,12 @@ class RulesTest {
     }
 
     @Test fun cutOffAnswerEndsOnAFullSentence() {
-        val l = Describer.parse("TITLE: Desk lamp
-DESCRIPTION:
-Adjustable LED desk lamp with three brightness levels. Great for reading and late-night work, with a flexi")
+        val l = Describer.parse("TITLE: Desk lamp\nDESCRIPTION:\nAdjustable LED desk lamp with three brightness levels. Great for reading and late-night work, with a flexi")
         assertEquals("Adjustable LED desk lamp with three brightness levels.", l.description)
     }
 
     @Test fun completeAnswerIsNotTrimmed() {
-        val l = Describer.parse("TITLE: Desk lamp
-DESCRIPTION:
-Adjustable LED desk lamp.
-- Three brightness levels
-IDENTIFIED: no
-MSRP: unknown")
+        val l = Describer.parse("TITLE: Desk lamp\nDESCRIPTION:\nAdjustable LED desk lamp.\n- Three brightness levels\nIDENTIFIED: no\nMSRP: unknown")
         assertTrue(l.description.endsWith("- Three brightness levels"))
     }
 
