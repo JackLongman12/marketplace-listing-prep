@@ -1,0 +1,45 @@
+name: Bug report
+description: Something doesn't work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please don't include personal details, photos of you or your home, or your Facebook account info.
+        Crashes are reported automatically (label `crash`); add anything extra about one here.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to make it happen again
+      placeholder: |
+        1. Take 3 photos of one item
+        2. Tap Share to Marketplace
+        3. ...
+  - type: input
+    id: build
+    attributes:
+      label: App build
+      description: Settings → Updates shows the build number.
+      placeholder: "e.g. 1.0 (build 55)"
+    validations:
+      required: true
+  - type: input
+    id: phone
+    attributes:
+      label: Phone and Android version
+      placeholder: "e.g. Galaxy S26 Ultra, Android 16"
+  - type: dropdown
+    id: ai
+    attributes:
+      label: Which AI writes your descriptions?
+      options:
+        - Gemini Nano (built into the phone)
+        - Downloaded Gemma 3n model
+        - Not sure

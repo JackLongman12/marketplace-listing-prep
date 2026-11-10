@@ -33,7 +33,7 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+      - uses: gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
         with:
           gradle-version: '8.11.1'
 
@@ -97,6 +97,7 @@ jobs:
           CHANGES=$(git log "$RANGE" --no-merges --format=%h -- app | wc -l)
           # No app changes since the last release: compile-check only, don't offer an identical "update".
           echo "changed=$([ "$CHANGES" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "version=$(grep '^appVersion=' gradle.properties | cut -d= -f2)" >> "$GITHUB_OUTPUT"
           {
             echo "## What's new"
             if [ "$CHANGES" -eq 0 ]; then echo; echo "Maintenance build: nothing in the app changed."; fi
@@ -117,7 +118,7 @@ jobs:
         if: steps.key.outputs.present == 'true' && steps.notes.outputs.changed == 'true'
         with:
           tag_name: build-${{ github.run_number }}
-          name: Listing Prep build ${{ github.run_number }}
+          name: Listing Prep ${{ steps.notes.outputs.version }} (build ${{ github.run_number }})
           body_path: release-notes.md
           files: |
             ListingPrep-${{ github.run_number }}.apk

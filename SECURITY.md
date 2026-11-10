@@ -37,13 +37,14 @@ Please report security issues privately through GitHub:
   and never loaded. Interrupted downloads resume with a freshly signed link.
 - **Key storage.** The optional price-search key is encrypted with an AES-256-GCM key held in
   the Android Keystore.
-- **Crash reports.** Saved on the phone only, offered for copying on the next start. They hold
+- **Crash reports.** Saved on the phone when the app crashes. They hold
   the app build, Android version, phone model, the day, and the error type with the lines of
   code it went through. Error messages are left out (they can contain listing text, file names
   or keys); no photos, items, settings or identifiers. Unless you turn it off (Settings →
   Updates and crash reports), the report is sent on the next start to the crash relay
   (`lp-crash-relay.lp-reports.workers.dev`, source in `relay/`), which posts it as a public
   issue labelled `crash`. The relay accepts only that format, rate-limits, and logs nothing.
+  With sending off, the report is offered for copying instead.
 - **Shared photos.** Re-encoded as new JPEGs with no EXIF (no GPS location, no camera data).
   The app doesn't request `ACCESS_MEDIA_LOCATION`, so Android hides photo locations from it too.
 - **No backups.** App data is excluded from cloud backup and device-to-device transfer.

@@ -27,7 +27,7 @@ Turn a pile of photos into ready-to-post Facebook Marketplace listings, entirely
 
 1. On your phone, open the [latest release](https://github.com/JackLongman12/marketplace-listing-prep/releases/latest) and download `ListingPrep-N.apk`.
 2. Open it and allow installs from your browser when Android asks.
-3. In the app, go to **Settings → AI model** for the one-time model setup (free, 4.4 GB, Wi-Fi).
+3. If your phone has Gemini Nano (built-in AI on recent Galaxy and Pixel phones), you're done. Otherwise tap **Download AI model** on the home screen: free, 4.4 GB, one tap, no account.
 
 After that the app updates itself: it checks this repo's releases, downloads the new build, verifies its checksum and signing key, and installs it when you leave the app. The first update asks you once to allow Listing Prep to install updates.
 
@@ -35,12 +35,32 @@ Built and tested for the Galaxy S26 Ultra (Android 13+, 64-bit ARM, 8 GB+ RAM re
 
 ## Privacy
 
-Photos, items and AI processing stay on the phone. The app only connects to Hugging Face (model download), GitHub (updates) and, when you use them, the barcode and price lookups; all other connections are blocked. Crash reports stay on the phone and contain no personal data. Shared photos carry no location data. See [SECURITY.md](SECURITY.md) for details and how to report a problem.
+Photos, items and AI processing stay on the phone. The app only connects to Hugging Face (model download), GitHub (updates) and, when you use them, the barcode and price lookups; all other connections are blocked. If the app crashes, an anonymous report (app build, Android version, phone model, the day and the code lines that failed; no messages or personal data) is posted to this repo's [issue board](https://github.com/JackLongman12/marketplace-listing-prep/issues?q=label%3Acrash); you can turn this off in Settings. Shared photos carry no location data. See [SECURITY.md](SECURITY.md) for details and how to report a problem.
 
 ## Build from source
 
 GitHub Actions builds and signs every push to `main` (see `.github/workflows/build.yml`). To build locally, open the project in Android Studio, or run `gradle assembleDebug` with JDK 17 and the Android SDK.
 
+## FAQ
+
+**Android or Play Protect warns me when installing.** That's normal for apps installed from outside the Play Store. Tap *More details → Install anyway*. Genuine builds are only published in this repo's [Releases](https://github.com/JackLongman12/marketplace-listing-prep/releases), signed with the certificate whose SHA-256 is listed in [SECURITY.md](SECURITY.md).
+
+**Why is the AI model 4.4 GB?** It's a full language model (Google's Gemma 3n) that runs entirely on your phone, so your photos never leave it. Phones with Gemini Nano don't need it. You can delete it in Settings any time.
+
+**Why can't I pick several photos at once on Facebook's website?** Facebook's mobile website takes one photo at a time. Listings with more than 5 photos open the Facebook app instead, whose picker takes several at once (tap *Sell*, then add photos).
+
+**Does the app post to Facebook for me?** No. Facebook has no public way for apps to create Marketplace listings. The app saves the photos, opens Facebook and gives you one-tap copy buttons; you post it yourself.
+
+**Something's wrong or I have an idea.** [Open an issue](https://github.com/JackLongman12/marketplace-listing-prep/issues/new/choose).
+
 ## Credits
 
 State / province names come from the ISO 3166-2 data of Debian's [iso-codes](https://salsa.debian.org/iso-codes-team/iso-codes) project (LGPL-2.1), bundled as `app/src/main/assets/subdivisions.json`.
+
+AI models: [Gemma 3n](https://ai.google.dev/gemma) by Google, provided under the [Gemma Terms of Use](https://ai.google.dev/gemma/terms) (downloaded on the phone, not bundled); Gemini Nano via Android AICore; MediaPipe models (image embedding, interactive segmentation) and ML Kit (text and barcode recognition) by Google.
+
+## License
+
+Listing Prep is free software under the [GNU General Public License v3.0](LICENSE): you may use, study, share and change it, and anything you distribute based on it must stay under the same license with its source available. Third-party parts keep their own licenses (see Credits).
+
+Listing Prep is an independent project, not affiliated with, endorsed or sponsored by Meta Platforms, Inc. Facebook and Marketplace are trademarks of Meta Platforms, Inc.
