@@ -113,9 +113,8 @@ internal fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: ()
         title = { Text("Refresh this item?") },
         text = {
             Text(
-                "Reads the photos again (text, barcodes), writes a new title and description" +
-                    (if (state.hasPriceKey) " and searches the price again" else "") +
-                    ". Your current title, description" + (if (state.hasPriceKey) " and price" else "") + " will be replaced."
+                "Reads the photos again (text, barcodes) and writes a new title and description. " +
+                    "Your current title and description will be replaced."
             )
         },
         confirmButton = { TextButton(onClick = { confirmRefresh = false; vm.refreshItem(item.id) }) { Text("Refresh") } },
@@ -219,8 +218,7 @@ internal fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: ()
             ) {
                 Text(
                     "The AI couldn't tell exactly what this is, so the description is generic. Type what it is " +
-                        "(brand and model if you know them) and it'll write it again from that" +
-                        if (state.hasPriceKey && state.settings.onlineLookup) ", after looking the product up." else ".",
+                        "(brand and model if you know them) and it'll write it again from that.",
                     Modifier.padding(12.dp),
                     style = MaterialTheme.typography.bodyMedium,
                 )
@@ -283,42 +281,6 @@ internal fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: ()
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 modifier = Modifier.fillMaxWidth(),
             )
-            var priceSetup by remember { mutableStateOf(false) }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(
-                    onClick = { if (state.hasPriceKey) vm.findPrice(item.id) else priceSetup = true },
-                    enabled = idle && item.title.isNotBlank(),
-                    modifier = Modifier.weight(1f),
-                ) { Text(if (item.price.isBlank()) "Find typical second-hand price" else "Check the price again") }
-                if (state.hasPriceKey && item.price.isNotBlank()) {
-                    IconButton(onClick = { vm.findPrice(item.id) }, enabled = idle && item.title.isNotBlank()) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Search the price again")
-                    }
-                }
-            }
-            state.priceHint?.takeIf { it.itemId == item.id }?.let { hint ->
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(hint.text, style = MaterialTheme.typography.bodyMedium)
-                        if (hint.sources.isNotEmpty()) {
-                            Text(
-                                "Sources: " + hint.sources.joinToString(", "),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            hint.value?.let { v ->
-                                Button(onClick = { vm.updateItem(item.id) { it.copy(price = v) }; vm.dismissPriceHint() }) {
-                                    Text("Use ${region.symbol}$v")
-                                }
-                            }
-                            TextButton(onClick = vm::dismissPriceHint) { Text("Close") }
-                        }
-                    }
-                }
-            }
-            if (priceSetup) PriceKeyDialog(vm, onDone = { ok -> priceSetup = false; if (ok) vm.findPrice(item.id) })
             OutlinedTextField(
                 value = item.description,
                 onValueChange = { v -> vm.updateItem(item.id) { it.copy(description = v) } },

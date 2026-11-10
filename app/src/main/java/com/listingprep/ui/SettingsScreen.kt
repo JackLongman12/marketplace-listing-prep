@@ -192,20 +192,6 @@ internal fun SettingsScreen(state: UiState, vm: AppViewModel, onBack: () -> Unit
             )
 
             HorizontalDivider()
-            Text("Google AI (optional)", style = MaterialTheme.typography.titleMedium)
-            var keysDialog by remember { mutableStateOf(false) }
-            Text(
-                if (state.hasPriceKey) "Google AI key saved (encrypted). Used for the price search, and for writing if you turn that on below."
-                else "Optional: a free Google AI Studio key enables the second-hand price search, and optional writing with Google.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { keysDialog = true }) { Text(if (state.hasPriceKey) "Change API key" else "Set up price search") }
-                if (state.hasPriceKey) TextButton(onClick = { vm.savePriceKey("") }) { Text("Remove key") }
-            }
-            if (keysDialog) PriceKeyDialog(vm, onDone = { keysDialog = false })
-            HorizontalDivider()
             Text("Phone's built-in AI", style = MaterialTheme.typography.titleMedium)
             SettingSwitch(
                 title = "Use Gemini Nano when available",
@@ -265,48 +251,4 @@ internal fun SettingsScreen(state: UiState, vm: AppViewModel, onBack: () -> Unit
             }
         }
     }
-}
-
-
-/** One-time setup for the price search: the user's own free Google AI Studio (Gemini) API key. */
-@Composable
-internal fun PriceKeyDialog(vm: AppViewModel, onDone: (saved: Boolean) -> Unit) {
-    val context = LocalContext.current
-    // Plain remember: rememberSaveable would copy the key into saved instance state.
-    var key by remember { mutableStateOf("") }
-    AlertDialog(
-        onDismissRequest = { onDone(false) },
-        title = { Text("Google AI key") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    "Prices are looked up with Google's AI search (Gemini with Google Search). It needs a free API key:\n" +
-                        "1. Open Google AI Studio and sign in.\n" +
-                        "2. Tap Create API key.\n" +
-                        "3. Paste it here.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                OutlinedButton(onClick = {
-                    context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse("https://aistudio.google.com/apikey")))
-                }) { Text("Open Google AI Studio") }
-                OutlinedTextField(
-                    value = key, onValueChange = { key = it.trim() }, singleLine = true,
-                    label = { Text("API key") },
-                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Text(
-                    "Stored encrypted on this phone and sent only to Google's Gemini API. A search sends the item's title, " +
-                        "condition and your location (no photos). On Google's free tier, Google may use requests to improve its products.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { vm.savePriceKey(key); onDone(true) }, enabled = key.length > 20) { Text("Save") }
-        },
-        dismissButton = { TextButton(onClick = { onDone(false) }) { Text("Cancel") } },
-    )
 }

@@ -19,11 +19,6 @@ Please report security issues privately through GitHub:
   to `api.upcitemdb.com`, `world.openfoodfacts.org` or `openlibrary.org`; these are the only
   extra hosts the network allowlist permits. Redirects to other hosts are refused, replies
   are capped at 256 KB and treated as untrusted text. Off switch in Settings.
-- **Price search.** Only when you tap *Find typical second-hand price*, using your own Google
-  AI Studio key (stored encrypted with the Android Keystore, sent in a header). Sends the item
-  title, condition and your Settings location to `generativelanguage.googleapis.com` only
-  (Gemini with Google Search), over HTTPS, no redirects, replies capped at 1 MB. No photos,
-  description or notes. On Google's free tier Google may use requests to improve its products.
 - **No cloud writing.** Descriptions are always written on the phone (Gemini Nano or Gemma 3n);
   photos never leave the phone.
 - **App updates.** The app reads this repo's latest release from `api.github.com` and

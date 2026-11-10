@@ -9,7 +9,7 @@ import com.listingprep.data.readyToShare
 import com.listingprep.data.stripDefaults
 import com.listingprep.data.withDefaults
 import com.listingprep.ml.Describer
-import com.listingprep.ml.PriceLookup
+import com.listingprep.ml.Price
 import com.listingprep.ml.ProductLookup
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -143,20 +143,6 @@ class RulesTest {
         assertNull(ProductLookup.retailCode(listOf("QR: 4006381333931")))
     }
 
-    // ---- price search answer -----------------------------------------------
-
-    @Test fun priceLineIsRead() {
-        val e = PriceLookup.parse("Used ones go for about this.\nPRICE: 1,200 | LOW: 900 | HIGH: 1500 | CURRENCY: hkd", emptyList())
-        assertEquals(1200.0, e.price!!, 0.001)
-        assertEquals(900.0, e.low!!, 0.001)
-        assertEquals(1500.0, e.high!!, 0.001)
-        assertEquals("HKD", e.currency)
-    }
-
-    @Test fun unknownPrice() {
-        assertNull(PriceLookup.parse("Couldn't find anything.\nPRICE: unknown", emptyList()).price)
-    }
-
     // ---- crash reports -------------------------------------------------------
 
     @Test fun crashTraceLeavesOutMessages() {
@@ -208,7 +194,7 @@ class RulesTest {
     }
 
     @Test fun rounding() {
-        assertEquals("330", PriceLookup.round(329.99))
-        assertEquals("12.50", PriceLookup.round(12.5))
+        assertEquals("330", Price.round(329.99))
+        assertEquals("12.50", Price.round(12.5))
     }
 }

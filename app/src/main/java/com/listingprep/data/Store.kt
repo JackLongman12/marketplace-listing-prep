@@ -65,15 +65,10 @@ class Store(context: Context) {
             }.apply()
         }
 
-    /** Gemini API key for the price search, encrypted with the Keystore key. */
-    var geminiKey: String?
-        get() = prefs.getString("geminiKeyEnc", null)?.let(TokenVault::decrypt)
-        set(v) {
-            prefs.edit().apply {
-                remove("ebayIdEnc"); remove("ebaySecretEnc") // from build 22
-                if (v.isNullOrBlank()) remove("geminiKeyEnc") else putString("geminiKeyEnc", TokenVault.encrypt(v.trim()))
-            }.apply()
-        }
+    /** The price search was removed; deletes the Google AI key older builds saved for it. */
+    fun clearOldGeminiKey() {
+        prefs.edit().apply { remove("geminiKeyEnc"); remove("ebayIdEnc"); remove("ebaySecretEnc") }.apply()
+    }
 
     /** Build the user last opened, and the notes of the update being installed, for the "Updated" pop-up. */
     /** Cloud writing was removed; deletes the keys older builds saved for it. */

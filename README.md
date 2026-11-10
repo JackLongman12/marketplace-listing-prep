@@ -18,7 +18,7 @@ Turn a pile of photos into ready-to-post Facebook Marketplace listings, entirely
 - **Background clean-up.** After shooting you see a white-background preview of each photo and pick: this photo, all photos, or none. The original is always kept.
 - **Undo.** Deleting, merging and status changes show an Undo bar.
 - **AI on the phone.** Uses the phone's built-in Gemini Nano when it has one; otherwise a free one-tap download of Gemma 3n (4.4 GB, no account needed, verified against Google's fingerprint). You can delete the model in Settings any time.
-- **Price help (optional).** *Find typical second-hand price* asks Google's AI search what the item sells for used where you live (your own free Google AI Studio key; sends title, condition and location).
+- **Price starting point.** When the AI recognises the product, the price field starts at its original retail price (MSRP), worked out on the phone; set your own.
 - **Bulk select.** Long-press items to merge, mark posted/sold, or delete several at once.
 - **You check it.** Each item has a *Checked* switch; sharing stays locked until you've reviewed the photos and text.
 - **Posts it fast.** *Share to Marketplace* saves the photos cover-first, opens Facebook's Create listing form in the browser (or the Facebook app for listings with more than 5 photos, since its picker takes several at once), and shows a floating panel with one-tap copy buttons for the title and description. *Done* marks the item posted.

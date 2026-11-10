@@ -7,8 +7,6 @@
   token is sent; the file must match Google's published SHA-256).
   Barcode lookup (only when the AI can't identify an item, can be turned off in Settings):
   api.upcitemdb.com, world.openfoodfacts.org and openlibrary.org receive the barcode number only.
-  Google AI (only with your own key): generativelanguage.googleapis.com. Price search sends
-  the title, condition and location (never photos).
   Crash reports (anonymous, can be turned off): lp-crash-relay.lp-reports.workers.dev only.
   App updates: api.github.com, github.com and GitHub's download hosts (release files only).
   Plain HTTP is disabled everywhere.
@@ -29,7 +27,6 @@
         <domain includeSubdomains="false">world.openfoodfacts.org</domain>
         <domain includeSubdomains="false">openlibrary.org</domain>
         <domain includeSubdomains="false">api.github.com</domain>
-        <domain includeSubdomains="false">generativelanguage.googleapis.com</domain>
         <domain includeSubdomains="false">github.com</domain>
         <domain includeSubdomains="false">objects.githubusercontent.com</domain>
         <domain includeSubdomains="false">release-assets.githubusercontent.com</domain>

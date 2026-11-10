@@ -34,8 +34,7 @@ import com.listingprep.ml.Ocr
 import com.listingprep.ml.Codes
 import com.listingprep.ml.ProductLookup
 import com.listingprep.ml.TextSafety
-import com.listingprep.ml.PriceLookup
-import com.listingprep.ml.Gemini
+import com.listingprep.ml.Price
 import com.listingprep.ml.Nano
 import com.listingprep.data.Photo
 import kotlinx.coroutines.CancellationException
@@ -85,11 +84,8 @@ data class UiState(
     /** Pop-up for a manual "Check for updates": open, and its result text when there's no update to show. */
     val updatePopup: Boolean = false,
     val updateNote: String? = null,
-    val hasPriceKey: Boolean = false,
     /** The phone's built-in Gemini Nano: READY, DOWNLOADABLE, DOWNLOADING or UNAVAILABLE (null = not checked yet). */
     val nano: Nano.State? = null,
-    /** Result of "Find second-hand price" for one item. */
-    val priceHint: PriceHint? = null,
     /** Shown once after the app updated itself: the new build and what changed. */
     val justUpdated: UpdateUi? = null,
     /** Report from a crash last time the app ran, offered for copying once. */
@@ -99,8 +95,6 @@ data class UiState(
     val canWrite: Boolean get() = modelPath != null || nanoReady
     val nanoReady: Boolean get() = settings.useNano && nano == Nano.State.READY
 }
-
-data class PriceHint(val itemId: String, val text: String, val value: String?, val sources: List<String> = emptyList())
 
 data class UpdateUi(
     val build: Int,
@@ -150,7 +144,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             items = store.loadItems(),
             settings = store.loadSettings(),
             modelPath = ModelFiles.find(app)?.absolutePath,
-            hasPriceKey = !store.geminiKey.isNullOrBlank(),
         )
     )
     val state = _state.asStateFlow()
@@ -168,7 +161,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch(safe) { UpdateState.error.collect { e -> if (e != null) { showError(e); UpdateState.error.value = null } } }
         // Older builds needed a Hugging Face token to download the model; it is no longer used.
         store.hfToken = null
-        store.clearOldProviderKeys() // cloud writing was removed: drop any saved keys
+        // Cloud writing and the price search were removed: drop any keys older builds saved.
+        store.clearOldProviderKeys()
+        store.clearOldGeminiKey()
         announceUpdate()
         CrashLog.read(ctx)?.let { report ->
             if (CrashLog.canSend && _state.value.settings.crashReports) {
@@ -601,13 +596,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    // ---- second-hand price search (Google AI search) ---------------------------
-
-    fun savePriceKey(key: String) {
-        store.geminiKey = key.trim().ifBlank { null }
-        _state.update { it.copy(hasPriceKey = !store.geminiKey.isNullOrBlank()) }
-    }
-
     /** Checks the phone's built-in AI; asks Android to fetch it when the phone supports it. */
     fun refreshNano(download: Boolean = false) {
         viewModelScope.launch(safe) {
@@ -628,47 +616,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val text = runCatching { Nano.generate(prompt, photo, temperature) }.getOrNull() ?: return null
         return Describer.parse(text).takeUnless { Describer.looksBroken(it) }
     }
-
-    fun findPrice(id: String) = work("Searching second-hand prices with Google…") {
-        val item = _state.value.items.find { it.id == id } ?: return@work
-        val key = store.geminiKey ?: return@work
-        val settings = _state.value.settings
-        val region = Regions.current(settings)
-        val result = withContext(Dispatchers.IO) {
-            runCatching { PriceLookup.estimate(key, item.title, item.condition, Regions.describe(settings), region.currency) }
-        }
-        val hint = result.fold(
-            onSuccess = { e ->
-                val p = e.price
-                if (p == null) PriceHint(id, e.summary.ifBlank { "Google couldn't find reliable second-hand prices for this. Try brand + model in the title." }, null, e.sources)
-                else {
-                    val cur = e.currency ?: region.currency
-                    val range = if (e.low != null && e.high != null) " (usually ${PriceLookup.round(e.low)}–${PriceLookup.round(e.high)})" else ""
-                    val other = region.currency.isNotBlank() && cur != region.currency
-                    val text = "Typical used price: $cur ${PriceLookup.round(p)}$range.\n${e.summary}" +
-                        if (other) "\nNote: the prices found are in $cur, not ${region.currency}." else ""
-                    PriceHint(id, text, if (other) null else PriceLookup.round(p), e.sources)
-                }
-            },
-            onFailure = { e ->
-                PriceHint(
-                    id,
-                    if (e is Gemini.BadKey) "Google didn't accept the API key. Check it in Settings → Google AI."
-                    else "Price search failed: ${e.message}",
-                    null,
-                )
-            },
-        )
-        val value = hint.value
-        if (value != null) {
-            undoable("Price set to ${region.symbol}$value", listOf(id)) { updateItem(id) { it.copy(price = value) } }
-            _state.update { it.copy(priceHint = hint.copy(value = null, text = "Filled in: " + hint.text)) }
-        } else {
-            _state.update { it.copy(priceHint = hint) }
-        }
-    }
-
-    fun dismissPriceHint() = _state.update { it.copy(priceHint = null) }
 
     // ---- running the model (stoppable) --------------------------------------
 
@@ -733,7 +680,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /**
      * Item page "refresh": reads the photos again (text, barcodes, online barcode info), rewrites
-     * the title and description from scratch, and searches the price again.
+     * the title and description from scratch.
      */
     fun refreshItem(id: String) {
         val before = _state.value.items.find { it.id == id } ?: return
@@ -748,44 +695,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 throw e
             }
         }
-        if (store.geminiKey != null) findPrice(id) // queued: runs right after the rewrite
     }
 
     /**
-     * You tell the AI what the item is (e.g. "Sony WH-1000XM4 headphones"). With a Google key, the
-     * product's facts are looked up first (only that text is sent); then the listing is rewritten
-     * from your answer, the photos and those facts.
+     * You tell the AI what the item is (e.g. "Sony WH-1000XM4 headphones"); the listing is
+     * rewritten on the phone from your answer and the photos.
      */
     fun identifyAndWrite(id: String, identity: String) {
         val what = identity.trim().take(200)
         if (what.isBlank()) return
         updateItem(id) { it.copy(identity = what, unsure = false, product = "") }
-        val key = store.geminiKey
-        writingJob = work("Looking up \"$what\"…") {
-            if (key != null && _state.value.settings.onlineLookup) {
-                val facts = withContext(Dispatchers.IO) {
-                    runCatching {
-                        Gemini.generate(
-                            key,
-                            listOf(Gemini.textPart(
-                                "The seller typed this product name; it may be abbreviated, misspelled or partly wrong " +
-                                    "(e.g. \"bose qc 45\" = Bose QuietComfort 45). Work out the exact product, search the web for it " +
-                                    "and list its key facts for a second-hand listing: $what\n" +
-                                    "Give at most 6 short lines, starting with the official full product name, then brand and model, release year, main specs " +
-                                    "(size, capacity, power, material…), what normally comes in the box, and its original " +
-                                    "retail price (MSRP) where the seller lives. " +
-                                    "No prices, no opinions. If you can't find this exact product, answer only: UNKNOWN"
-                            )),
-                            search = true,
-                            temperature = 0.1,
-                        ).text
-                    }.getOrNull()
-                }?.filter { !it.isISOControl() || it == '\n' }?.trim()?.take(800)
-                if (!facts.isNullOrBlank() && !facts.startsWith("UNKNOWN", ignoreCase = true)) {
-                    updateItem(id) { it.copy(product = TextSafety.clean(facts)) }
-                }
-            }
-            progress("Writing the description…", null)
+        writingJob = work("Writing the description…") {
             generateOne(id, replacePrice = true)
         }
     }
@@ -928,10 +848,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 description = withDefaults(TextSafety.clean(listing.description), it.condition, _state.value.settings),
                 status = if (it.isActive) Status.READY else it.status,
                 unsure = !listing.identified && it.identity.isBlank(),
-                // Known product: start the price at its original retail price (MSRP); change it any time.
                 // Start the price at the product's original retail price (MSRP) when the AI gives one.
                 // Refresh and "What is it?" replace the old price; a normal write only fills an empty one.
-                price = listing.msrp?.takeIf { _ -> it.price.isBlank() || replacePrice }?.let(PriceLookup::round) ?: it.price,
+                price = listing.msrp?.takeIf { _ -> it.price.isBlank() || replacePrice }?.let(Price::round) ?: it.price,
             )
         }
         _state.update { it.copy(generatingId = null) }
@@ -1115,7 +1034,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 ?.forEach { it.delete() }
         }
         store.hfToken = null
-        store.geminiKey = null
+        store.clearOldGeminiKey()
         TokenVault.deleteKey()
         setItems { emptyList() } // goes through the same save queue, so no stale write lands after
         store.saveSettings(Settings())
