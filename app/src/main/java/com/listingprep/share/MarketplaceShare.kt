@@ -3,6 +3,7 @@ package com.listingprep.share
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.Settings
 import com.listingprep.data.Item
@@ -22,10 +23,29 @@ object MarketplaceShare {
         Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
 
     /** Tries the Facebook app on the create-listing link, then the app's home, then the browser. */
+    /**
+     * Opens Facebook's "Create listing" form.
+     * - In the browser (default): facebook.com/marketplace/create/item opens the form itself.
+     *   The Facebook app ignores that link's "create" part and only shows Marketplace.
+     * - In the Facebook app: one of its screens is picked directly, so there's no "which
+     *   Facebook?" question; you then tap Sell yourself.
+     */
     fun openMarketplace(context: Context) {
+        val inBrowser = com.listingprep.data.Store(context).loadSettings().listingInBrowser
+        val pm = context.packageManager
+        val view = Intent(Intent.ACTION_VIEW, CREATE_URL).addCategory(Intent.CATEGORY_BROWSABLE)
+        val browser = run {
+            val def = pm.resolveActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com")), PackageManager.MATCH_DEFAULT_ONLY)
+                ?.activityInfo?.takeIf { it.packageName != FACEBOOK && it.packageName != "android" }
+            def ?: pm.queryIntentActivities(Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com")).addCategory(Intent.CATEGORY_BROWSABLE), 0)
+                .map { it.activityInfo }.firstOrNull { it.packageName != FACEBOOK }
+        }?.let { Intent(view).setClassName(it.packageName, it.name) }
+        val fbApp = pm.queryIntentActivities(Intent(view).setPackage(FACEBOOK), 0).firstOrNull()?.activityInfo
+            ?.let { Intent(view).setClassName(it.packageName, it.name) }
         val attempts = listOfNotNull(
-            Intent(Intent.ACTION_VIEW, CREATE_URL).setPackage(FACEBOOK),
-            context.packageManager.getLaunchIntentForPackage(FACEBOOK),
+            if (inBrowser) browser else fbApp,
+            if (inBrowser) fbApp else browser,
+            pm.getLaunchIntentForPackage(FACEBOOK),
             Intent(Intent.ACTION_VIEW, CREATE_URL),
         )
         for (intent in attempts) {

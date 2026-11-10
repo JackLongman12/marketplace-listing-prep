@@ -31,6 +31,7 @@ class Store(context: Context) {
         onlineLookup = prefs.getBoolean("onlineLookup", true),
         autoWrite = prefs.getBoolean("autoWrite", true),
         autoUpdate = prefs.getBoolean("autoUpdate", true),
+        listingInBrowser = prefs.getBoolean("listingInBrowser", true),
         cloudWriting = prefs.getBoolean("cloudWriting", false),
         useNano = prefs.getBoolean("useNano", true),
         writingProvider = prefs.getString("writingProvider", null) ?: "gemini",
@@ -49,6 +50,7 @@ class Store(context: Context) {
             .putBoolean("onlineLookup", s.onlineLookup)
             .putBoolean("autoWrite", s.autoWrite)
             .putBoolean("autoUpdate", s.autoUpdate)
+            .putBoolean("listingInBrowser", s.listingInBrowser)
             .putBoolean("cloudWriting", s.cloudWriting)
             .putBoolean("useNano", s.useNano)
             .putString("writingProvider", s.writingProvider)

@@ -66,6 +66,8 @@ data class Settings(
     val writingProvider: String = "gemini",
     /** Model name at that provider; blank = the provider's default. */
     val writingModel: String = "",
+    /** Open Facebook's Create listing form in the browser (it opens the form itself; the app only shows Marketplace). */
+    val listingInBrowser: Boolean = true,
     /** Download new builds from GitHub and install them when you leave the app. */
     val autoUpdate: Boolean = true,
     /** ISO region code (e.g. "HK" for Hong Kong SAR); blank = the phone's region. */

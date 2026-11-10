@@ -281,6 +281,16 @@ internal fun SettingsScreen(state: UiState, vm: AppViewModel, onBack: () -> Unit
             )
 
             HorizontalDivider()
+            Text("Posting", style = MaterialTheme.typography.titleMedium)
+            SettingSwitch(
+                title = "Open the listing form in the browser",
+                detail = if (state.settings.listingInBrowser) "Share opens Facebook's Create listing form in your browser (sign in there once)."
+                else "Share opens the Facebook app on Marketplace; tap Sell there to start the listing.",
+                checked = state.settings.listingInBrowser,
+                onChange = { on -> vm.updateSettings { it.copy(listingInBrowser = on) } },
+            )
+
+            HorizontalDivider()
             Text("Updates", style = MaterialTheme.typography.titleMedium)
             SettingSwitch(
                 title = "Update automatically",

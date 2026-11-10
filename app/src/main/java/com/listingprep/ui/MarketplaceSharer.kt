@@ -80,7 +80,7 @@ fun rememberMarketplaceSharer(vm: AppViewModel, settings: Settings): (Item) -> U
                     MarketplaceShare.openMarketplace(context)
                     Toast.makeText(
                         context,
-                        "In Facebook tap Add photos: the newest ${saved.size} are this item's, cover first.",
+                        "Tap Add photos: the newest ${saved.size} are this item's, cover first.",
                         Toast.LENGTH_LONG,
                     ).show()
                   } catch (e: Exception) {
