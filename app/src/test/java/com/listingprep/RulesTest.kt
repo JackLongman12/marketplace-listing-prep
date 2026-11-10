@@ -196,6 +196,17 @@ class RulesTest {
         assertEquals(text, com.listingprep.ml.TextSafety.clean(text))
     }
 
+    // ---- update notes --------------------------------------------------------
+
+    @Test fun releaseNotesBecomePlainText() {
+        val body = "## What's new\n\n### Re-shoot a photo\n\nLong-press a photo.\n\n---\nInstall: download the APK."
+        assertEquals("Re-shoot a photo\nLong-press a photo.", com.listingprep.update.Updater.notesOf(body))
+    }
+
+    @Test fun maintenanceBuildsHaveNoNotes() {
+        assertEquals("", com.listingprep.update.Updater.notesOf("## What's new\n\nMaintenance build: nothing in the app changed.\n\n---\nInstall"))
+    }
+
     @Test fun rounding() {
         assertEquals("330", PriceLookup.round(329.99))
         assertEquals("12.50", PriceLookup.round(12.5))

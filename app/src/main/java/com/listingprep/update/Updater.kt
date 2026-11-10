@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
 import android.os.Build
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -57,14 +58,37 @@ object Updater {
         }
         val (apkUrl, size) = apk ?: return null
         if (sha == null || size <= 0 || size > MAX_APK) return null
-        // "What's new" from the release page, as plain text (untrusted: shortened, no markup).
-        val notes = json.optString("body")
-            .substringAfter("## What's new", json.optString("body"))
-            .substringBefore("\n---")
-            .lines().map { it.trim().removePrefix("### ").replace("**", "") }
-            .filter { line -> line.isNotEmpty() && line.none { it.isISOControl() } }
-            .joinToString("\n").take(2000)
+        val installed = installedBuild(context)
+        // Skipped some builds? Show what's new in each of them too, newest first.
+        val notes = if (build - installed <= 1) notesOf(json.optString("body")) else {
+            runCatching { notesSince(installed, build) }.getOrNull()?.takeIf { it.isNotBlank() }
+                ?: notesOf(json.optString("body"))
+        }
         return Release(build, apkUrl, sha, size, notes)
+    }
+
+    /** "What's new" from one release page, as plain text (untrusted: shortened, no markup). */
+    internal fun notesOf(body: String): String = body
+        .substringAfter("## What's new", body)
+        .substringBefore("\n---")
+        .lines().map { it.trim().removePrefix("### ").replace("**", "") }
+        .filter { line -> line.isNotEmpty() && line.none { it.isISOControl() } }
+        .filterNot { it.startsWith("Maintenance build") }
+        .joinToString("\n").take(2000)
+
+    /** Notes of every release after [installed] up to [latest], each under "Build N", newest first. */
+    private fun notesSince(installed: Long, latest: Int): String {
+        val list = JSONArray(String(fetch(URL("https://api.github.com/repos/$REPO/releases?per_page=50"), 4 shl 20), Charsets.UTF_8))
+        return (0 until list.length()).map { list.getJSONObject(it) }
+            .mapNotNull { r ->
+                val b = r.optString("tag_name").removePrefix("build-").toIntOrNull() ?: return@mapNotNull null
+                if (b <= installed || b > latest || r.optBoolean("draft") || r.optBoolean("prerelease")) null
+                else b to notesOf(r.optString("body"))
+            }
+            .filter { it.second.isNotBlank() }
+            .sortedByDescending { it.first }
+            .joinToString("\n\n") { (b, n) -> "Build $b\n$n" }
+            .take(8000)
     }
 
     /** Blocking. Downloads and fully verifies; returns the APK, or throws with a reason. */
