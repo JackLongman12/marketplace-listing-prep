@@ -136,7 +136,7 @@ internal fun ItemListScreen(
                     TextButton(onClick = { selected = shown.map { it.id }.toSet() }) { Text("Select all") }
                 },
             ) else TopAppBar(
-                title = { Text("Listing Prep") },
+                title = { Text("Snaplist") },
                 actions = {
                     // A new build: always visible, however far the list is scrolled.
                     state.update?.let { u ->
@@ -416,7 +416,7 @@ internal fun UpdateCard(update: UpdateUi, vm: AppViewModel) {
                 update.offerOnly -> Button(onClick = { vm.checkForUpdate() }) { Text("Download & see what's new") }
                 update.ready && canInstall -> Button(onClick = vm::openUpdatePopup) { Text("See what's new & install") }
                 update.ready -> {
-                    Text("One-time step: allow Listing Prep to install its own updates.", style = MaterialTheme.typography.bodySmall)
+                    Text("One-time step: allow Snaplist to install its own updates.", style = MaterialTheme.typography.bodySmall)
                     OutlinedButton(onClick = {
                         context.startActivity(
                             android.content.Intent(

@@ -29,7 +29,7 @@ import javax.net.ssl.HttpsURLConnection
  *   even asked (Android would refuse it too).
  */
 object Updater {
-    private const val REPO = "JackLongman12/marketplace-listing-prep"
+    private const val REPO = "JackLongman12/snaplist"
     private const val LATEST = "https://api.github.com/repos/$REPO/releases/latest"
     private val HOSTS = setOf("api.github.com", "github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com")
     private const val MAX_APK = 250L * 1024 * 1024
@@ -216,7 +216,7 @@ object Updater {
                 connectTimeout = 15_000
                 readTimeout = 30_000
                 setRequestProperty("Accept", if (url.host == "api.github.com") "application/vnd.github+json" else "application/octet-stream")
-                setRequestProperty("User-Agent", "ListingPrep-updater")
+                setRequestProperty("User-Agent", "Snaplist-updater")
             }
             when (val code = conn.responseCode) {
                 200 -> return Opened(conn, conn.inputStream)

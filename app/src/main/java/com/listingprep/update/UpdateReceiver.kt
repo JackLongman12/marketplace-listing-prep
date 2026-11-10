@@ -57,7 +57,7 @@ class UpdateReceiver : BroadcastReceiver() {
             5,
             Notification.Builder(context, "updates")
                 .setSmallIcon(R.drawable.ic_stat_listing)
-                .setContentTitle("Listing Prep update ready")
+                .setContentTitle("Snaplist update ready")
                 .setContentText("Tap to finish installing the new build.")
                 .setContentIntent(pi)
                 .setAutoCancel(true)

@@ -118,7 +118,7 @@ jobs:
         if: steps.key.outputs.present == 'true' && steps.notes.outputs.changed == 'true'
         with:
           tag_name: build-${{ github.run_number }}
-          name: Listing Prep ${{ steps.notes.outputs.version }} (build ${{ github.run_number }})
+          name: Snaplist ${{ steps.notes.outputs.version }} (build ${{ github.run_number }})
           body_path: release-notes.md
           files: |
             ListingPrep-${{ github.run_number }}.apk

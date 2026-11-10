@@ -8,7 +8,7 @@ workers_dev = true
 enabled = false
 
 [vars]
-GITHUB_REPO = "JackLongman12/marketplace-listing-prep"
+GITHUB_REPO = "JackLongman12/snaplist"
 
 # At most 2 reports a minute from one sender...
 [[ratelimits]]

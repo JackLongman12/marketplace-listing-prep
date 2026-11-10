@@ -41,9 +41,9 @@ fun rememberMarketplaceSharer(vm: AppViewModel, settings: Settings): (Item) -> U
             title = { Text("Allow the copy panel") },
             text = {
                 Text(
-                    "While you post, Listing Prep shows a small floating panel over Facebook with " +
+                    "While you post, Snaplist shows a small floating panel over Facebook with " +
                         "Copy title / price / description buttons. Turn on \"Display over other apps\" " +
-                        "for Listing Prep, come back, and tap Share again."
+                        "for Snaplist, come back, and tap Share again."
                 )
             },
             confirmButton = {

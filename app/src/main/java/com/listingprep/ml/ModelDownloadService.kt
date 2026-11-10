@@ -66,7 +66,7 @@ class ModelDownloadService : Service() {
         if (job?.isActive == true) return START_NOT_STICKY
         val wifiOnly = intent?.getBooleanExtra(EXTRA_WIFI_ONLY, true) ?: true
         wakeLock = getSystemService(PowerManager::class.java)
-            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "ListingPrep:model")
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Snaplist:model")
             .apply { acquire(6 * 60 * 60 * 1000L) }
         job = scope.launch {
             val end = try {
@@ -176,7 +176,7 @@ class ModelDownloadService : Service() {
         )
         val n = Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_listing)
-            .setContentTitle("AI model for Listing Prep")
+            .setContentTitle("AI model for Snaplist")
             .setContentText(text)
             .setOngoing(true)
             .setOnlyAlertOnce(true)

@@ -36,7 +36,7 @@ object PanelSession {
 
 /**
  * A small draggable panel that floats over Facebook while you fill in a listing.
- * Each button copies one field to the clipboard; "Done" returns to Listing Prep and
+ * Each button copies one field to the clipboard; "Done" returns to Snaplist and
  * marks the item as posted.
  */
 class ShareOverlayService : Service() {

@@ -172,7 +172,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     when (CrashLog.send(report)) {
                         CrashLog.Sent.YES, CrashLog.Sent.REJECTED -> {
                             CrashLog.clear(ctx)
-                            showError("Listing Prep closed unexpectedly last time. An anonymous crash report was sent so it can be fixed.")
+                            showError("Snaplist closed unexpectedly last time. An anonymous crash report was sent so it can be fixed.")
                         }
                         CrashLog.Sent.NO_RETRY_LATER -> Unit
                     }
@@ -312,7 +312,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun photoCount(ids: List<String>) =
         _state.value.items.filter { it.id in ids }.sumOf { item -> item.photos.count { it.uri.startsWith("file:") } }
 
-    /** Android's own "Allow Listing Prep to delete these photos?" dialog, or null if it can't be built. */
+    /** Android's own "Allow Snaplist to delete these photos?" dialog, or null if it can't be built. */
     fun galleryDeleteRequest(uris: List<Uri>): IntentSender? =
         if (uris.isEmpty()) null
         else runCatching { MediaStore.createDeleteRequest(ctx.contentResolver, uris).intentSender }.getOrNull()
@@ -1177,7 +1177,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (seen <= 0L || installed <= seen) return // first install, or nothing new
         val notes = store.pendingNotes?.takeIf { it.first.toLong() == installed }?.second.orEmpty()
         store.pendingNotes = null
-        _state.update { it.copy(justUpdated = UpdateUi(installed.toInt(), "Listing Prep is now on build $installed.", notes = notes)) }
+        _state.update { it.copy(justUpdated = UpdateUi(installed.toInt(), "Snaplist is now on build $installed.", notes = notes)) }
     }
 
     fun dismissCrashReport() {

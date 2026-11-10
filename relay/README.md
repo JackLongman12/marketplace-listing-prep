@@ -13,7 +13,7 @@ rate-limits senders, merges repeats of the same crash into one issue, and logs n
 
 1. **GitHub key** at <https://github.com/settings/personal-access-tokens/new>:
    - Token name: `crash relay`; Expiration: 1 year
-   - Repository access: *Only select repositories* → `marketplace-listing-prep`
+   - Repository access: *Only select repositories* → `snaplist`
    - Permissions → Repository → **Issues: Read and write** (nothing else)
    - Generate, and copy the token. Don't share it with anyone.
 2. **Deploy** from this folder (needs Node.js):

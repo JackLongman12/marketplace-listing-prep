@@ -35,7 +35,7 @@ object CrashLog {
     fun report(context: Context, error: Throwable): String {
         val build = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode }.getOrDefault(0L)
         return buildString {
-            appendLine("Listing Prep build $build, Android ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT}), ${Build.MODEL}")
+            appendLine("Snaplist build $build, Android ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT}), ${Build.MODEL}")
             appendLine("Crash on ${SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())}")
             append(trace(error))
         }.take(8_000)
@@ -73,7 +73,7 @@ object CrashLog {
      * Blank = automatic sending is off in this build.
      */
     const val RELAY = "https://lp-crash-relay.lp-reports.workers.dev/crash"
-    const val ISSUES_PAGE = "https://github.com/JackLongman12/marketplace-listing-prep/issues?q=label%3Acrash"
+    const val ISSUES_PAGE = "https://github.com/JackLongman12/snaplist/issues?q=label%3Acrash"
 
     val canSend get() = RELAY.isNotBlank()
 

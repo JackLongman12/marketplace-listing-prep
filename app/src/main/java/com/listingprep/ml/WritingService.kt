@@ -57,7 +57,7 @@ class WritingService : Service() {
             )
             return Notification.Builder(context, CHANNEL)
                 .setSmallIcon(R.drawable.ic_stat_listing)
-                .setContentTitle("Listing Prep")
+                .setContentTitle("Snaplist")
                 .setContentText(text)
                 .setOngoing(ongoing)
                 .setAutoCancel(!ongoing)

@@ -115,7 +115,7 @@ object ProductLookup {
                 connectTimeout = 8_000
                 readTimeout = 8_000
                 setRequestProperty("Accept", "application/json")
-                setRequestProperty("User-Agent", "ListingPrep/0.1 (personal Android app)")
+                setRequestProperty("User-Agent", "Snaplist/1.0 (Android app)")
             }
             try {
                 when (val code = conn.responseCode) {

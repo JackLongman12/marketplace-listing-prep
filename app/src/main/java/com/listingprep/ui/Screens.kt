@@ -166,7 +166,7 @@ fun App(
     state.crashReport?.let { report ->
         AlertDialog(
             onDismissRequest = vm::dismissCrashReport,
-            title = { Text("Listing Prep closed unexpectedly") },
+            title = { Text("Snaplist closed unexpectedly") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Sorry about that. Copy the crash report and send it to the developer so it can be fixed. It only has the app build, Android version, phone model, the day, and which lines of code failed: no photos, listing text, error messages or anything about you.")
@@ -238,7 +238,7 @@ internal fun UpdatePopup(state: UiState, vm: AppViewModel) {
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }
                 if (u?.ready == true && !vm.canInstallUpdates()) {
-                    Text("One-time step: allow Listing Prep to install its own updates.", style = MaterialTheme.typography.bodySmall)
+                    Text("One-time step: allow Snaplist to install its own updates.", style = MaterialTheme.typography.bodySmall)
                 }
             }
         },

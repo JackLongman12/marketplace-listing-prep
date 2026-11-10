@@ -1,5 +1,5 @@
 /**
- * Listing Prep crash relay (Cloudflare Worker).
+ * Snaplist crash relay (Cloudflare Worker).
  *
  * The app POSTs an anonymous crash report to /crash; this turns it into a public GitHub issue
  * (or a "seen again" comment on the existing one). The GitHub key lives only here, as an
@@ -21,7 +21,7 @@
 const MAX_BYTES = 8000;
 const MAX_REPEAT_COMMENTS = 20;
 
-const HEADER = /^Listing Prep build \d{1,7}, Android [0-9A-Za-z.]{1,12} \(SDK \d{1,3}\), [0-9A-Za-z _.()+\/-]{1,40}$/;
+const HEADER = /^(?:Listing Prep|Snaplist) build \d{1,7}, Android [0-9A-Za-z.]{1,12} \(SDK \d{1,3}\), [0-9A-Za-z _.()+\/-]{1,40}$/;
 const DAY = /^Crash on \d{4}-\d{2}-\d{2}$/;
 const CLASS = /^(Caused by )?[A-Za-z_$][\w$.]{0,200}$/;
 const FRAME = /^  at [\w$.<>\-]{1,300}\([\w$.?\-]{1,120}:-?\d{1,7}\)$/;
