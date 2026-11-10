@@ -60,6 +60,7 @@ class ShareOverlayService : Service() {
             id = intent.getStringExtra(EXTRA_ID).orEmpty(),
             title = intent.getStringExtra(EXTRA_TITLE).orEmpty(),
             price = intent.getStringExtra(EXTRA_PRICE).orEmpty(),
+            photos = intent.getIntExtra(EXTRA_PHOTOS, 0),
             description = intent.getStringExtra(EXTRA_DESCRIPTION).orEmpty(),
         )
         return START_NOT_STICKY
@@ -101,12 +102,13 @@ class ShareOverlayService : Service() {
     }
 
     @SuppressLint("ClickableViewAccessibility", "SetTextI18n")
-    private fun showPanel(id: String, title: String, price: String, description: String) {
+    private fun showPanel(id: String, title: String, price: String, description: String, photos: Int) {
         removePanel()
         val ctx = ContextThemeWrapper(this, android.R.style.Theme_DeviceDefault)
 
         val status = TextView(ctx).apply {
-            text = "Tap a button, then paste into the matching Facebook field."
+            text = (if (photos > 0) "Photos: tap Add photos and pick the newest $photos (cover first). " else "") +
+                "Then tap a button below and paste into the matching Facebook field."
             setTextColor(Color.rgb(0xBD, 0xC1, 0xC6))
             textSize = 12f
         }
@@ -221,6 +223,7 @@ class ShareOverlayService : Service() {
         const val EXTRA_ID = "id"
         const val EXTRA_TITLE = "title"
         const val EXTRA_PRICE = "price"
+        const val EXTRA_PHOTOS = "photos"
         const val EXTRA_DESCRIPTION = "description"
         private const val ACTION_CLOSE = "com.listingprep.CLOSE_PANEL"
         private const val CHANNEL = "posting_helper"

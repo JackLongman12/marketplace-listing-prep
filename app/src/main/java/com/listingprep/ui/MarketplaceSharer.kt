@@ -74,13 +74,13 @@ fun rememberMarketplaceSharer(vm: AppViewModel, settings: Settings): (Item) -> U
                     context.getSystemService(ClipboardManager::class.java)
                         .setPrimaryClip(ClipData.newPlainText("Description", description))
                     MarketplaceShare.startPanel(context, item, description)
-                    // Photos go straight into Facebook; if it can't take them, open Marketplace as before.
-                    val sent = MarketplaceShare.sendPhotos(context, saved)
-                    if (!sent) MarketplaceShare.openMarketplace(context)
+                    // Facebook only accepts shared photos for posts, groups and stories, not for a new
+                    // Marketplace listing, so open the listing form; the photos are the newest in the
+                    // gallery (cover first) and sit at the top of Facebook's photo picker.
+                    MarketplaceShare.openMarketplace(context)
                     Toast.makeText(
                         context,
-                        if (sent) "${saved.size} photos sent to Facebook, cover first. If it asks where to share, pick Marketplace."
-                        else "${saved.size} photos saved, cover first. Pick the newest ones in Facebook.",
+                        "In Facebook tap Add photos: the newest ${saved.size} are this item's, cover first.",
                         Toast.LENGTH_LONG,
                     ).show()
                   } catch (e: Exception) {
