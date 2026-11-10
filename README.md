@@ -4,7 +4,7 @@ Turn a pile of photos into ready-to-post Facebook Marketplace listings, entirely
 
 ![Listing Prep: shoot it, sort it, describe it, post it](assets/social-preview.png)
 
-![Listing Prep: photos sorted into items, reviewing an item, and posting with the floating copy panel](assets/preview.png)
+![Listing Prep: shooting an item with the built-in camera, the item with its written description and price, and the finished Marketplace listing](assets/preview.png)
 
 ## What it does
 
