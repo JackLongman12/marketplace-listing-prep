@@ -26,6 +26,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         UpdateState.appVisible = true
+        vm.onAppVisible()
     }
 
     override fun onStop() {

@@ -138,6 +138,12 @@ internal fun ItemListScreen(
             ) else TopAppBar(
                 title = { Text("Listing Prep") },
                 actions = {
+                    // A new build: always visible, however far the list is scrolled.
+                    state.update?.let { u ->
+                        FilledTonalButton(onClick = { if (u.offerOnly) vm.checkForUpdate() else vm.openUpdatePopup() }) {
+                            Text(if (u.ready || u.offerOnly) "Update" else "Updating…")
+                        }
+                    }
                     IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, contentDescription = "Settings") }
                 },
             )

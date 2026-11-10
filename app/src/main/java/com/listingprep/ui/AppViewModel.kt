@@ -1289,6 +1289,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun canInstallUpdates() = Updater.canInstall(ctx)
 
+    private var lastVisibleCheck = 0L
+
+    /** Every time the app comes on screen: look for a new build (at most every 2 minutes). */
+    fun onAppVisible() {
+        val now = System.currentTimeMillis()
+        if (now - lastVisibleCheck < 2 * 60 * 1000L || _state.value.update?.ready == true) return
+        lastVisibleCheck = now
+        checkForUpdate(manual = false)
+    }
+
     /** After an update, the first launch says so (with what changed) instead of you checking Settings. */
     private fun announceUpdate() {
         val installed = Updater.installedBuild(ctx)

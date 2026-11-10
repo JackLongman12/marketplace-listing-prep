@@ -28,7 +28,7 @@ class UpdateCheckJob : JobService() {
         thread(name = "update-check") {
             runCatching {
                 val store = Store(this)
-                store.lastUpdateCheck = System.currentTimeMillis()
+
                 val release = Updater.check(this) ?: return@runCatching
                 store.availableBuild = release.build
                 if (release.build > store.lastNotifiedBuild) {
@@ -45,14 +45,16 @@ class UpdateCheckJob : JobService() {
 
     companion object {
         private const val JOB_ID = 7
+        private const val PERIOD = 60 * 60 * 1000L // hourly; Android batches it to save battery
 
         /** Registers the periodic check (once; Android keeps it across restarts). */
         fun schedule(context: Context) {
             val js = context.getSystemService(JobScheduler::class.java)
-            if (js.getPendingJob(JOB_ID) != null) return
+            // Re-register if an older build scheduled it with a different interval (it was 6 hours).
+            if (js.getPendingJob(JOB_ID)?.intervalMillis == PERIOD) return
             js.schedule(
                 JobInfo.Builder(JOB_ID, ComponentName(context, UpdateCheckJob::class.java))
-                    .setPeriodic(6 * 60 * 60 * 1000L)
+                    .setPeriodic(PERIOD, 15 * 60 * 1000L)
                     .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
                     .setPersisted(true)
                     .build()
