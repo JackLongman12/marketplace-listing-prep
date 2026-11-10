@@ -52,8 +52,9 @@ fun PhotoViewer(photos: List<Photo>, start: Int, onDismiss: () -> Unit) {
             HorizontalPager(state = pager, modifier = Modifier.fillMaxSize()) { page ->
                 var scale by remember { mutableFloatStateOf(1f) }
                 var offset by remember { mutableStateOf(Offset.Zero) }
-                val request = remember(page) {
-                    ImageRequest.Builder(context).data(Uri.parse(photos[page].shown)).size(2048).build()
+                val photo = photos.getOrNull(page) ?: return@HorizontalPager
+                val request = remember(photo.shown) {
+                    ImageRequest.Builder(context).data(Uri.parse(photo.shown)).size(2048).build()
                 }
                 AsyncImage(
                     model = request,

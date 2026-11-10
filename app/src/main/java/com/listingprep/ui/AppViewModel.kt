@@ -41,6 +41,8 @@ import com.listingprep.ml.Provider
 import com.listingprep.data.Photo
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineExceptionHandler
+import com.listingprep.CrashLog
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -95,6 +97,8 @@ data class UiState(
     val priceHint: PriceHint? = null,
     /** Shown once after the app updated itself: the new build and what changed. */
     val justUpdated: UpdateUi? = null,
+    /** Report from a crash last time the app ran, offered for copying once. */
+    val crashReport: String? = null,
 ) {
     /** Descriptions can be written: the on-phone model is there, or Google writing is on with a key. */
     val canWrite: Boolean get() = modelPath != null || nanoReady || (settings.cloudWriting && settings.writingProvider in providerKeys)
@@ -132,6 +136,14 @@ private val Background = java.util.concurrent.Executors.newFixedThreadPool(2) { 
 }.asCoroutineDispatcher()
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
+    /**
+     * Background tasks that fail show a message instead of closing the app. (Unexpected crashes
+     * elsewhere are saved by CrashLog and offered for copying on the next start.)
+     */
+    private val safe = CoroutineExceptionHandler { _, e ->
+        _state.update { it.copy(error = "Something went wrong: ${e.message ?: e.javaClass.simpleName}") }
+    }
+
     private val ctx: Application get() = getApplication()
     private val store = Store(app)
     private val describer = Describer(app)
@@ -159,18 +171,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         watchDownload()
         moveModelToKeptStorage()
-        viewModelScope.launch { WritingService.stopRequests.collect { if (it > 0) stopWriting() } }
-        viewModelScope.launch { UpdateState.error.collect { e -> if (e != null) { showError(e); UpdateState.error.value = null } } }
+        viewModelScope.launch(safe) { WritingService.stopRequests.collect { if (it > 0) stopWriting() } }
+        viewModelScope.launch(safe) { UpdateState.error.collect { e -> if (e != null) { showError(e); UpdateState.error.value = null } } }
         announceUpdate()
+        _state.update { it.copy(crashReport = CrashLog.read(ctx)) }
         refreshNano(download = true)
         // Nothing is mid-install at launch, so any downloaded update file is leftover: remove it.
-        viewModelScope.launch(Dispatchers.IO) { Updater.apkFile(ctx).parentFile?.deleteRecursively() }
+        viewModelScope.launch(Dispatchers.IO + safe) { Updater.apkFile(ctx).parentFile?.deleteRecursively() }
         // Background check (a few times a day, notifies you); and on opening, show any newer build on the home screen.
         UpdateCheckJob.schedule(ctx)
         val known = store.availableBuild > Updater.installedBuild(ctx)
         if (known || System.currentTimeMillis() - store.lastUpdateCheck > 30 * 60 * 1000L) checkForUpdate(manual = false)
         // Leftover from builds that had a "Share photos" button.
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(Dispatchers.IO + safe) {
             File(app.cacheDir, "share").deleteRecursively()
             // Half-finished download from build 15, which saved to the old folder.
             ModelFiles.legacyDir(app)?.listFiles()?.filter { it.name.endsWith(".download") }?.forEach { it.delete() }
@@ -208,7 +221,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         change()
         pendingCleanup = cleanup
         _state.update { it.copy(undo = UndoUi(message)) }
-        undoTimer = viewModelScope.launch {
+        undoTimer = viewModelScope.launch(safe) {
             delay(6_000)
             undoTimer = null
             commitUndo()
@@ -223,7 +236,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         undoBefore = emptyList()
         val cleanup = pendingCleanup ?: return
         pendingCleanup = null
-        CoroutineScope(Dispatchers.IO).launch { cleanup() }
+        CoroutineScope(Dispatchers.IO + safe).launch { cleanup() }
     }
 
     fun undo() {
@@ -316,7 +329,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         } else {
             commitUndo()
             change()
-            CoroutineScope(Dispatchers.IO).launch { cleanup() }
+            CoroutineScope(Dispatchers.IO + safe).launch { cleanup() }
         }
     }
 
@@ -330,8 +343,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val ownDir = cameraPhotoDir(ctx).canonicalPath
         uris.forEach {
             val uri = Uri.parse(it)
-            if (uri.scheme == "file") {
-                val f = File(uri.path ?: return@forEach)
+            if (uri.scheme == "file") runCatching {
+                val f = File(uri.path ?: return@runCatching)
                 if (f.canonicalPath.startsWith(ownDir)) f.delete()
             } else runCatching {
                 ctx.contentResolver.releasePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -342,7 +355,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private fun releaseUnused(uris: List<String>) {
         val used = _state.value.items.flatMap { it.photos }.flatMap { it.files() }.toSet()
         val gone = uris.filterNot { it in used }
-        if (gone.isNotEmpty()) viewModelScope.launch(Dispatchers.IO) { releasePhotoAccess(gone) }
+        if (gone.isNotEmpty()) viewModelScope.launch(Dispatchers.IO + safe) { releasePhotoAccess(gone) }
     }
 
     private fun Photo.files() = listOfNotNull(uri, cutout)
@@ -458,7 +471,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Every queued or running background task, so Stop can cancel all of them (e.g. if one hangs). */
     private val workJobs = java.util.Collections.synchronizedSet(mutableSetOf<Job>())
 
-    private fun work(label: String, block: suspend () -> Unit): Job = viewModelScope.launch {
+    private fun work(label: String, block: suspend () -> Unit): Job = viewModelScope.launch(safe) {
         val me = coroutineContext[Job]!!
         workJobs += me
         try { workMutex.withLock {
@@ -577,7 +590,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Checks the phone's built-in AI; asks Android to fetch it when the phone supports it. */
     fun refreshNano(download: Boolean = false) {
-        viewModelScope.launch {
+        viewModelScope.launch(safe) {
             var st = Nano.state()
             _state.update { it.copy(nano = st) }
             if (download && st == Nano.State.DOWNLOADABLE && _state.value.settings.useNano) {
@@ -846,7 +859,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun warmUp() {
         val path = _state.value.modelPath ?: return
         if (describer.isLoaded(path)) return
-        viewModelScope.launch(Background) {
+        viewModelScope.launch(Background + safe) {
             runCatching { describeLock.withLock { describer.ensureLoaded(path) } }
         }
     }
@@ -1093,7 +1106,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun deleteImportSource() {
         val uri = _state.value.offerDeleteImportSource ?: return
         _state.update { it.copy(offerDeleteImportSource = null) }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(Dispatchers.IO + safe) {
             val deleted = runCatching { DocumentsContract.deleteDocument(ctx.contentResolver, Uri.parse(uri)) }
                 .getOrDefault(false)
             if (!deleted) showError("Couldn't delete the original here. Delete it in the Files app (Downloads).")
@@ -1108,13 +1121,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      * Wipes everything the app has stored: items, shared photo copies, the token, the
      * model, caches. Your original photos are never touched.
      */
-    fun eraseEverything() = viewModelScope.launch {
+    fun eraseEverything() = viewModelScope.launch(safe) {
         // Never waits for other work: stops it first, so Erase works even if something is stuck.
         stopAll()
         _state.update { it.copy(busy = "Erasing app data…") }
         ModelDownloadService.cancel(ctx)
         // A stuck model call may still be using the engine; close it once that call ends.
-        CoroutineScope(Background).launch { describeLock.withLock { describer.close() } }
+        CoroutineScope(Background + safe).launch { describeLock.withLock { describer.close() } }
         withContext(Dispatchers.IO) {
             Exporter.deleteAllOwned(ctx)
             ctx.contentResolver.persistedUriPermissions.forEach {
@@ -1139,7 +1152,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Deletes every photo copy this app ever saved to the shared gallery. */
-    fun deleteAllSharedCopies() = viewModelScope.launch {
+    fun deleteAllSharedCopies() = viewModelScope.launch(safe) {
         val n = withContext(Dispatchers.IO) { Exporter.deleteAllOwned(ctx) }
         setItems { items -> items.map { it.copy(exportedUris = emptyList()) } }
         showError("Deleted $n photo copies from Pictures/ListingPrep.")
@@ -1169,7 +1182,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun cancelDownload() = ModelDownloadService.cancel(ctx)
 
     private fun watchDownload() {
-        viewModelScope.launch {
+        viewModelScope.launch(safe) {
             ModelDownloadService.state.collect { s ->
                 when (s) {
                     DownloadState.Idle -> _state.update { it.copy(download = null) }
@@ -1207,7 +1220,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun checkForUpdate(manual: Boolean = true) {
         if (updateJob?.isActive == true) return
         if (manual && _state.value.update?.offerOnly == true) _state.update { it.copy(update = null) }
-        updateJob = viewModelScope.launch {
+        updateJob = viewModelScope.launch(safe) {
             if (manual) _state.update { it.copy(updatePopup = true, updateNote = "Checking for updates…") }
             val release = withContext(Dispatchers.IO) { runCatching { Updater.check(ctx) } }
             store.lastUpdateCheck = System.currentTimeMillis()
@@ -1271,6 +1284,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(justUpdated = UpdateUi(installed.toInt(), "Listing Prep is now on build $installed.", notes = notes)) }
     }
 
+    fun dismissCrashReport() {
+        CrashLog.clear(ctx)
+        _state.update { it.copy(crashReport = null) }
+    }
+
     fun dismissJustUpdated() = _state.update { it.copy(justUpdated = null) }
 
     fun openUpdatePopup() = _state.update { it.copy(updatePopup = true) }
@@ -1281,7 +1299,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun installUpdate() {
         val apk = updateApk ?: return
         if (!Updater.canInstall(ctx)) return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(Dispatchers.IO + safe) {
             runCatching { Updater.install(ctx, apk) }.onFailure { showError("Update failed: ${it.message}") }
         }
     }

@@ -64,6 +64,7 @@ fun rememberMarketplaceSharer(vm: AppViewModel, settings: Settings): (Item) -> U
                 askPermission = true
             } else {
                 scope.launch {
+                  try {
                     val saved = withContext(Dispatchers.IO) {
                         Exporter.deleteExported(context, item.exportedUris)
                         Exporter.saveToAlbum(context, item)
@@ -79,6 +80,10 @@ fun rememberMarketplaceSharer(vm: AppViewModel, settings: Settings): (Item) -> U
                         "${saved.size} photos saved, cover first. Pick the newest ones in Facebook.",
                         Toast.LENGTH_LONG,
                     ).show()
+                  } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    Toast.makeText(context, "Couldn't prepare the share: ${e.message}", Toast.LENGTH_LONG).show()
+                  }
                 }
             }
             Unit

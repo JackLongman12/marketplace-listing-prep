@@ -152,6 +152,30 @@ fun App(
         }
     }
     if (state.updatePopup) UpdatePopup(state, vm)
+    state.crashReport?.let { report ->
+        AlertDialog(
+            onDismissRequest = vm::dismissCrashReport,
+            title = { Text("Listing Prep closed unexpectedly") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Sorry about that. Copy the crash report and send it to me so I can fix it. It only says which part of the app failed; no photos or listing text.")
+                    Text(
+                        report.lineSequence().take(4).joinToString("\n"),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    context.getSystemService(android.content.ClipboardManager::class.java)
+                        .setPrimaryClip(android.content.ClipData.newPlainText("Crash report", report))
+                    vm.dismissCrashReport()
+                }) { Text("Copy report") }
+            },
+            dismissButton = { TextButton(onClick = vm::dismissCrashReport) { Text("Dismiss") } },
+        )
+    }
     state.justUpdated?.let { u ->
         AlertDialog(
             onDismissRequest = vm::dismissJustUpdated,
