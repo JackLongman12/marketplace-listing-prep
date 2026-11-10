@@ -33,6 +33,7 @@ import com.listingprep.ml.ModelFiles
 import com.listingprep.ml.Ocr
 import com.listingprep.ml.Codes
 import com.listingprep.ml.ProductLookup
+import com.listingprep.ml.TextSafety
 import com.listingprep.ml.PriceLookup
 import com.listingprep.ml.Gemini
 import com.listingprep.ml.Nano
@@ -721,8 +722,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             undoable("Rewritten in a new tone", listOf(id)) {
                 updateItem(id) {
                     it.copy(
-                        title = listing.title.ifBlank { it.title },
-                        description = withDefaults(listing.description, it.condition, _state.value.settings),
+                        title = TextSafety.clean(listing.title).ifBlank { it.title },
+                        description = withDefaults(TextSafety.clean(listing.description), it.condition, _state.value.settings),
                         checked = false,
                     )
                 }
@@ -781,7 +782,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     }.getOrNull()
                 }?.filter { !it.isISOControl() || it == '\n' }?.trim()?.take(800)
                 if (!facts.isNullOrBlank() && !facts.startsWith("UNKNOWN", ignoreCase = true)) {
-                    updateItem(id) { it.copy(product = facts) }
+                    updateItem(id) { it.copy(product = TextSafety.clean(facts)) }
                 }
             }
             progress("Writing the description…", null)
@@ -909,8 +910,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 progress("Looking up the barcode online…", _state.value.progress)
                 val product = withContext(Dispatchers.IO) { runCatching { ProductLookup.lookup(code) }.getOrNull() }
                 if (product != null) {
-                    updateItem(id) { it.copy(product = product) }
-                    known = known.copy(product = product)
+                    updateItem(id) { it.copy(product = TextSafety.clean(product)) }
+                    known = known.copy(product = TextSafety.clean(product))
                     progress(label ?: "Writing description…", _state.value.progress)
                     result = attempt() ?: result
                 }
@@ -923,8 +924,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         updateItem(id) {
             it.copy(
-                title = listing.title.ifBlank { it.title },
-                description = withDefaults(listing.description, it.condition, _state.value.settings),
+                title = TextSafety.clean(listing.title).ifBlank { it.title },
+                description = withDefaults(TextSafety.clean(listing.description), it.condition, _state.value.settings),
                 status = if (it.isActive) Status.READY else it.status,
                 unsure = !listing.identified && it.identity.isBlank(),
                 // Known product: start the price at its original retail price (MSRP); change it any time.

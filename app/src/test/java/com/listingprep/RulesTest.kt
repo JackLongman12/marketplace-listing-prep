@@ -179,6 +179,23 @@ class RulesTest {
         }
     }
 
+    // ---- untrusted text ------------------------------------------------------
+
+    @Test fun linksAndEmailsAreRemoved() {
+        val dirty = "Great headphones. Order at https://scam.example/x or www.cheap-deals.shop\nEmail me: buyer@fake.com, see deals.xyz/now"
+        val clean = com.listingprep.ml.TextSafety.clean(dirty)
+        assertFalse(clean.contains("http"))
+        assertFalse(clean.contains("www."))
+        assertFalse(clean.contains("@"))
+        assertFalse(clean.contains("deals.xyz"))
+        assertTrue(clean.startsWith("Great headphones."))
+    }
+
+    @Test fun normalTextIsKept() {
+        val text = "Bose QC45, 24 h battery.\n- USB-C charging\n- 77 x 147 cm, e.g. for books"
+        assertEquals(text, com.listingprep.ml.TextSafety.clean(text))
+    }
+
     @Test fun rounding() {
         assertEquals("330", PriceLookup.round(329.99))
         assertEquals("12.50", PriceLookup.round(12.5))

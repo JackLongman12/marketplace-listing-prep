@@ -4,12 +4,17 @@ name: Check
 # summary and log ("CHECK: FAILED") instead of failing the run, so it doesn't send
 # "Run failed" emails. Only code that passed this check is merged to main, where the
 # real (signed) build and release happen.
+#
+# The result is also posted as the commit status "verified". main is protected by a
+# ruleset that only accepts commits whose "verified" status passed, so untested code
+# can't reach main (and so can't become an update on people's phones).
 on:
   push:
     branches-ignore: [main]
 
 permissions:
   contents: read
+  statuses: write # only to post the "verified" status
 
 jobs:
   check:
@@ -29,11 +34,19 @@ jobs:
           gradle-version: '8.11.1'
 
       - name: Build (unsigned) and report
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          status() {
+            gh api -X POST "repos/${{ github.repository }}/statuses/${{ github.sha }}"               -f state="$1" -f context=verified -f description="$2" > /dev/null || true
+          }
+          status pending "Building and testing"
           if gradle testReleaseUnitTest assembleRelease --stacktrace > build.log 2>&1; then
+            status success "Build and tests passed"
             echo "CHECK: PASSED" | tee -a "$GITHUB_STEP_SUMMARY"
             grep -ho 'tests="[0-9]*" skipped="[0-9]*" failures="[0-9]*" errors="[0-9]*"' app/build/test-results/testReleaseUnitTest/*.xml | sed 's/^/TESTS: /' | tee -a "$GITHUB_STEP_SUMMARY" || true
           else
+            status failure "Build or tests failed"
             echo "CHECK: FAILED" | tee -a "$GITHUB_STEP_SUMMARY"
             { echo '```'; grep -E "^e: |What went wrong|failed verification|FAILED$|AssertionError|expected:" -A3 build.log | head -60; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
             grep -E "^e: |What went wrong|failed verification|FAILED$|AssertionError|expected:" -A3 build.log | head -60

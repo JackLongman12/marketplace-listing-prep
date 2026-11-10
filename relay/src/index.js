@@ -9,7 +9,9 @@
  * - Only the exact report format is accepted: two fixed header lines, then Java class names
  *   and "  at Class.method(File.kt:123)" lines. No free text, no "@mentions", no links,
  *   no backticks, so nobody can post their own messages through it. Max 8 KB.
- * - Rate limits: a few reports per minute per sender, and a global cap.
+ * - The trace must go through the app's own code (com.listingprep.*), and the build number
+ *   must be a real published build (checked against the latest GitHub release).
+ * - Rate limits: 2 reports a minute per sender, 10 a minute in total.
  * - The same crash goes into one issue; repeats add a short comment (capped).
  *
  * Privacy: nothing is stored or logged here (observability is off in wrangler.toml). The
@@ -42,6 +44,10 @@ export default {
 
     const lines = text.replace(/\r/g, "").replace(/\n+$/, "").split("\n");
     if (!valid(lines)) return reply(400);
+    const build = Number(/build (\d+)/.exec(lines[0])[1]);
+    const latest = await latestBuild(env);
+    if (latest === null) return reply(503);
+    if (build < 1 || build > latest) return reply(400);
 
     // Same crash = same error types and code lines (the header with build/phone/day aside).
     const trace = lines.slice(2).filter((l) => l !== "");
@@ -103,7 +109,25 @@ function valid(lines) {
     if (CLASS.test(l)) { sawClass = true; continue; }
     return false;
   }
-  return sawClass;
+  return sawClass && lines.some((l) => l.startsWith("  at com.listingprep."));
+}
+
+// Newest published build number, cached for 10 minutes per Worker instance.
+let cachedLatest = { value: null, at: 0 };
+async function latestBuild(env) {
+  if (cachedLatest.value !== null && Date.now() - cachedLatest.at < 600_000) return cachedLatest.value;
+  const r = await fetch(`https://api.github.com/repos/${env.GITHUB_REPO}/releases/latest`, {
+    redirect: "manual",
+    headers: {
+      Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+      Accept: "application/vnd.github+json",
+      "User-Agent": "listing-prep-crash-relay",
+    },
+  });
+  if (!r.ok) return cachedLatest.value;
+  const m = /^build-(\d+)$/.exec((await r.json()).tag_name || "");
+  if (m) cachedLatest = { value: Number(m[1]), at: Date.now() };
+  return cachedLatest.value;
 }
 
 async function sha256(s) {

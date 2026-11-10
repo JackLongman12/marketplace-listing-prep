@@ -57,6 +57,11 @@ Please report security issues privately through GitHub:
   copies in `Pictures/ListingPrep` are deleted when an item is posted or deleted; Settings →
   Privacy → *Erase everything* removes all remaining app data before you uninstall.
 
+- **Text from the internet.** Barcode results, web search facts and the AI's own output are
+  cleaned before they go into a listing: web addresses, email addresses and invisible control
+  characters are removed, so a booby-trapped product page can't sneak a scam link or contact
+  details into what you post.
+
 ## Build and release integrity
 
 - Third-party GitHub Actions are pinned to commit SHAs; Dependabot proposes updates.
@@ -64,3 +69,13 @@ Please report security issues privately through GitHub:
 - The bundled image-embedding model is checked against a pinned SHA-256 at build time.
 - Each release includes the APK's SHA-256 so you can verify your download.
 - Each build's summary lists the permissions and components in the shipped APK.
+
+## Protections for releases and updates
+
+- `main` is protected by a ruleset: no force-pushes or deletion, and a commit can only land on
+  `main` once the Check workflow has built and tested it (commit status `verified`). So no
+  untested code becomes an update.
+- Every release's notes state the SHA-256 of the signing certificate. Genuine builds are only
+  published in this repo's Releases; the app refuses updates signed with any other key.
+- The biggest remaining risk is someone taking over the maintainer's GitHub account (it could
+  publish a signed build). The account uses a passkey/2FA for that reason.

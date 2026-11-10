@@ -106,6 +106,10 @@ jobs:
             echo
             echo "---"
             echo "Install: download the APK below on your phone and open it. Build 20 and newer update themselves."
+            BT="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
+            CERT=$("$BT/apksigner" verify --print-certs "ListingPrep-${{ github.run_number }}.apk" | grep -m1 'SHA-256 digest' | sed 's/.*: //')
+            echo
+            echo "Genuine builds are signed with certificate SHA-256 \`$CERT\` and are only published here."
           } > release-notes.md
           cat release-notes.md >> "$GITHUB_STEP_SUMMARY"
 

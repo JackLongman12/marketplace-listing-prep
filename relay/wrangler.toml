@@ -10,17 +10,17 @@ enabled = false
 [vars]
 GITHUB_REPO = "JackLongman12/marketplace-listing-prep"
 
-# At most 5 reports a minute from one sender...
+# At most 2 reports a minute from one sender...
 [[ratelimits]]
 name = "PER_SENDER"
 namespace_id = "1001"
-simple = { limit = 5, period = 60 }
+simple = { limit = 2, period = 60 }
 
-# ...and 30 a minute in total.
+# ...and 10 a minute in total.
 [[ratelimits]]
 name = "OVERALL"
 namespace_id = "1002"
-simple = { limit = 30, period = 60 }
+simple = { limit = 10, period = 60 }
 
 # Secret (set with `npx wrangler secret put GITHUB_TOKEN`, never in this file):
 #   GITHUB_TOKEN = fine-grained GitHub token, this repo only, "Issues: Read and write".
