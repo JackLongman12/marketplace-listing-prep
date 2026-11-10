@@ -54,7 +54,7 @@ export default {
     const gh = (path, init = {}) =>
       fetch(`https://api.github.com${path}`, {
         ...init,
-        redirect: "error",
+        redirect: "manual", // a redirect is just a failed (non-2xx) reply here
         headers: {
           Authorization: `Bearer ${env.GITHUB_TOKEN}`,
           Accept: "application/vnd.github+json",

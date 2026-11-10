@@ -7,3 +7,8 @@ local.properties
 app/src/main/assets/mobilenet_v3_small.tflite
 signing/
 app/src/main/assets/magic_touch.tflite
+
+# Wrangler (Cloudflare) local cache: holds account details
+.wrangler/
+relay/.wrangler/
+node_modules/

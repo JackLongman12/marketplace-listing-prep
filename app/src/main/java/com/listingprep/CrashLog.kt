@@ -72,7 +72,7 @@ object CrashLog {
      * The crash relay (a Cloudflare Worker) that files reports on the public issue board.
      * Blank = automatic sending is off in this build.
      */
-    const val RELAY = ""
+    const val RELAY = "https://lp-crash-relay.lp-reports.workers.dev/crash"
     const val ISSUES_PAGE = "https://github.com/JackLongman12/marketplace-listing-prep/issues?q=label%3Acrash"
 
     val canSend get() = RELAY.isNotBlank()
