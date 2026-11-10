@@ -15,7 +15,6 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <!-- Keeps the few-times-a-day update check scheduled after the phone restarts. -->
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- "Descriptions ready" notification after background writing. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -79,12 +78,6 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Floating panel with copy buttons shown over Facebook while the user posts a Marketplace listing" />
         </service>
-
-        <!-- Periodic "is there a new build?" check; only the system's job scheduler can start it. -->
-        <service
-            android:name=".update.UpdateCheckJob"
-            android:exported="true"
-            android:permission="android.permission.BIND_JOB_SERVICE" />
 
         <receiver
             android:name=".update.UpdateReceiver"

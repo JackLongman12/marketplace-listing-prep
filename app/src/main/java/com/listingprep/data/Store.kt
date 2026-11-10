@@ -112,9 +112,6 @@ class Store(context: Context) {
         get() = prefs.getInt("availableBuild", 0)
         set(v) { prefs.edit().putInt("availableBuild", v).apply() }
 
-    var lastNotifiedBuild: Int
-        get() = prefs.getInt("lastNotifiedBuild", 0)
-        set(v) { prefs.edit().putInt("lastNotifiedBuild", v).apply() }
 
     var lastUpdateCheck: Long
         get() = prefs.getLong("lastUpdateCheck", 0L)

@@ -56,7 +56,6 @@ import kotlinx.coroutines.Job
 import com.listingprep.ml.WritingService
 import com.listingprep.update.UpdateState
 import com.listingprep.update.Updater
-import com.listingprep.update.UpdateCheckJob
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -178,10 +177,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         refreshNano(download = true)
         // Nothing is mid-install at launch, so any downloaded update file is leftover: remove it.
         viewModelScope.launch(Dispatchers.IO + safe) { Updater.apkFile(ctx).parentFile?.deleteRecursively() }
-        // Background check (a few times a day, notifies you); and on opening, show any newer build on the home screen.
-        UpdateCheckJob.schedule(ctx)
-        val known = store.availableBuild > Updater.installedBuild(ctx)
-        if (known || System.currentTimeMillis() - store.lastUpdateCheck > 30 * 60 * 1000L) checkForUpdate(manual = false)
+        // Older builds checked for updates in the background; that job is no longer used, so remove it.
+        runCatching { ctx.getSystemService(android.app.job.JobScheduler::class.java).cancel(7) }
         // Leftover from builds that had a "Share photos" button.
         viewModelScope.launch(Dispatchers.IO + safe) {
             File(app.cacheDir, "share").deleteRecursively()
@@ -1247,7 +1244,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
             if (r != null) {
                 store.availableBuild = r.build
-                store.lastNotifiedBuild = maxOf(store.lastNotifiedBuild, r.build) // seen in the app: no extra notification
             }
             if (r == null) {
                 _state.update { it.copy(update = null) }
@@ -1289,13 +1285,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun canInstallUpdates() = Updater.canInstall(ctx)
 
-    private var lastVisibleCheck = 0L
-
-    /** Every time the app comes on screen: look for a new build (at most every 2 minutes). */
+    /** Every time the app is opened (or you come back to it): look for a new build. No background checks. */
     fun onAppVisible() {
-        val now = System.currentTimeMillis()
-        if (now - lastVisibleCheck < 2 * 60 * 1000L || _state.value.update?.ready == true) return
-        lastVisibleCheck = now
+        if (_state.value.update?.ready == true) return
         checkForUpdate(manual = false)
     }
 
