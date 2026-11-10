@@ -30,10 +30,10 @@ jobs:
 
       - name: Build (unsigned) and report
         run: |
-          if gradle assembleRelease --stacktrace > build.log 2>&1; then
+          if gradle testReleaseUnitTest assembleRelease --stacktrace > build.log 2>&1; then
             echo "CHECK: PASSED" | tee -a "$GITHUB_STEP_SUMMARY"
           else
             echo "CHECK: FAILED" | tee -a "$GITHUB_STEP_SUMMARY"
-            { echo '```'; grep -E "^e: |What went wrong|failed verification" -A3 build.log | head -60; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-            grep -E "^e: |What went wrong|failed verification" -A3 build.log | head -60
+            { echo '```'; grep -E "^e: |What went wrong|failed verification|FAILED$|AssertionError|expected:" -A3 build.log | head -60; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            grep -E "^e: |What went wrong|failed verification|FAILED$|AssertionError|expected:" -A3 build.log | head -60
           fi

@@ -1,4 +1,5 @@
 import java.net.URI
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.security.MessageDigest
 
 plugins {
@@ -52,9 +53,11 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions { jvmTarget = "17" }
+
 
     buildFeatures { compose = true }
+    // Plain JVM unit tests (app/src/test): Android calls return defaults instead of throwing.
+    testOptions { unitTests.isReturnDefaultValues = true }
     composeCompiler {
         // Lets Compose skip redrawing list rows whose item didn't change.
         stabilityConfigurationFiles.add(rootProject.layout.projectDirectory.file("compose-stability.conf"))
@@ -119,6 +122,8 @@ dependencies {
     implementation("androidx.camera:camera-view:1.4.1")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+
+    testImplementation("junit:junit:4.13.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
 
     // On-device ML: photo grouping, text reading, and the Gemma 3n language model.
@@ -126,5 +131,9 @@ dependencies {
     implementation("com.google.mediapipe:tasks-genai:0.10.29")
     implementation("com.google.mlkit:text-recognition:16.0.1")
     implementation("com.google.mlkit:barcode-scanning:17.3.0") // barcodes and QR codes, model bundled
-    implementation("com.google.mlkit:genai-prompt:1.0.0-beta2") // (newer betas need Kotlin 2.3+) the phone's built-in Gemini Nano (AICore)
+    implementation("com.google.mlkit:genai-prompt:1.0.0-beta5") // the phone's built-in Gemini Nano (AICore)
+}
+
+kotlin {
+    compilerOptions { jvmTarget.set(JvmTarget.JVM_17) }
 }

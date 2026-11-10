@@ -44,9 +44,11 @@ object PriceLookup {
         """.trimIndent()
 
         val answer = Gemini.generate(apiKey, listOf(Gemini.textPart(prompt)), search = true, temperature = 0.2)
-        val text = answer.text
-        val sources = answer.sources
+        return parse(answer.text, answer.sources)
+    }
 
+    /** Reads the "PRICE: … | LOW: … | HIGH: … | CURRENCY: …" line from the answer. */
+    fun parse(text: String, sources: List<String>): Estimate {
         val line = Regex("""PRICE:\s*([^\n]+)""", RegexOption.IGNORE_CASE).findAll(text).lastOrNull()?.groupValues?.get(1).orEmpty()
         fun field(name: String) = Regex("""$name:\s*([0-9][0-9.,]*)""", RegexOption.IGNORE_CASE).find("PRICE: $line")
             ?.groupValues?.get(1)?.replace(",", "")?.toDoubleOrNull()?.takeIf { it > 0 && it < 100_000_000 }

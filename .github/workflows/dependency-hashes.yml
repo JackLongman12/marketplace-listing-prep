@@ -30,7 +30,7 @@ jobs:
         run: |
           rm -f gradle/verification-metadata.xml
           # A compile error is reported, not failed, so it doesn't send "Run failed" emails.
-          if gradle --write-verification-metadata sha256 assembleRelease > build.log 2>&1; then
+          if gradle --write-verification-metadata sha256 testReleaseUnitTest assembleRelease > build.log 2>&1; then
             echo "CHECK: PASSED" | tee -a "$GITHUB_STEP_SUMMARY"
           else
             echo "CHECK: FAILED" | tee -a "$GITHUB_STEP_SUMMARY"

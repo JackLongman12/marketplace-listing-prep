@@ -56,7 +56,7 @@ jobs:
           SIGNING_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           SIGNING_KEY_ALIAS: listingprep
           SIGNING_KEY_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-        run: gradle assembleRelease -PversionCode=${{ github.run_number }} --stacktrace
+        run: gradle testReleaseUnitTest assembleRelease -PversionCode=${{ github.run_number }} --stacktrace
 
       # Libraries can quietly add permissions and components via manifest merging; print
       # what actually ships so changes are visible in every build's summary.
