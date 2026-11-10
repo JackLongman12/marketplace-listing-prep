@@ -37,6 +37,36 @@ object MarketplaceShare {
         }
     }
 
+    /**
+     * Hands the photos (cover first) straight to Facebook. Facebook decides what it offers for
+     * shared photos; if one of its share options is Marketplace, that one is used directly,
+     * otherwise Android shows Facebook's options to pick from. Returns false if Facebook can't
+     * take photos (not installed), so the caller can fall back to opening Marketplace.
+     */
+    fun sendPhotos(context: Context, photos: List<Uri>): Boolean {
+        if (photos.isEmpty()) return false
+        val send = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+            type = "image/jpeg"
+            putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(photos))
+            clipData = android.content.ClipData.newRawUri("photos", photos[0]).also { cd ->
+                photos.drop(1).forEach { cd.addItem(android.content.ClipData.Item(it)) }
+            }
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            setPackage(FACEBOOK)
+        }
+        val pm = context.packageManager
+        val targets = pm.queryIntentActivities(send, 0)
+        if (targets.isEmpty()) return false
+        val marketplace = targets.firstOrNull { it.loadLabel(pm).toString().contains("Marketplace", ignoreCase = true) }
+        if (marketplace != null) send.setClassName(marketplace.activityInfo.packageName, marketplace.activityInfo.name)
+        return try {
+            context.startActivity(send)
+            true
+        } catch (_: ActivityNotFoundException) {
+            false
+        }
+    }
+
     /** Marketplace's price box takes a plain number. */
     fun priceForFacebook(price: String): String =
         price.filter { it.isDigit() || it == '.' }.ifBlank { price }

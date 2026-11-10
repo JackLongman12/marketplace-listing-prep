@@ -74,10 +74,13 @@ fun rememberMarketplaceSharer(vm: AppViewModel, settings: Settings): (Item) -> U
                     context.getSystemService(ClipboardManager::class.java)
                         .setPrimaryClip(ClipData.newPlainText("Description", description))
                     MarketplaceShare.startPanel(context, item, description)
-                    MarketplaceShare.openMarketplace(context)
+                    // Photos go straight into Facebook; if it can't take them, open Marketplace as before.
+                    val sent = MarketplaceShare.sendPhotos(context, saved)
+                    if (!sent) MarketplaceShare.openMarketplace(context)
                     Toast.makeText(
                         context,
-                        "${saved.size} photos saved, cover first. Pick the newest ones in Facebook.",
+                        if (sent) "${saved.size} photos sent to Facebook, cover first. If it asks where to share, pick Marketplace."
+                        else "${saved.size} photos saved, cover first. Pick the newest ones in Facebook.",
                         Toast.LENGTH_LONG,
                     ).show()
                   } catch (e: Exception) {
