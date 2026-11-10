@@ -54,6 +54,7 @@ import kotlinx.coroutines.Job
 import com.listingprep.ml.WritingService
 import com.listingprep.update.UpdateState
 import com.listingprep.update.Updater
+import com.listingprep.update.UpdateCheckJob
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -164,7 +165,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         refreshNano(download = true)
         // Nothing is mid-install at launch, so any downloaded update file is leftover: remove it.
         viewModelScope.launch(Dispatchers.IO) { Updater.apkFile(ctx).parentFile?.deleteRecursively() }
-        if (System.currentTimeMillis() - store.lastUpdateCheck > 30 * 60 * 1000L) checkForUpdate(manual = false)
+        // Background check (a few times a day, notifies you); and on opening, show any newer build on the home screen.
+        UpdateCheckJob.schedule(ctx)
+        val known = store.availableBuild > Updater.installedBuild(ctx)
+        if (known || System.currentTimeMillis() - store.lastUpdateCheck > 30 * 60 * 1000L) checkForUpdate(manual = false)
         // Leftover from builds that had a "Share photos" button.
         viewModelScope.launch(Dispatchers.IO) {
             File(app.cacheDir, "share").deleteRecursively()
@@ -1209,6 +1213,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 _state.update { s -> s.copy(update = null) }
                 if (manual) _state.update { s -> s.copy(updateNote = "Couldn't check for updates: ${it.message}") }
                 return@launch
+            }
+            if (r != null) {
+                store.availableBuild = r.build
+                store.lastNotifiedBuild = maxOf(store.lastNotifiedBuild, r.build) // seen in the app: no extra notification
             }
             if (r == null) {
                 _state.update { it.copy(update = null) }

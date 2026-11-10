@@ -105,6 +105,15 @@ class Store(context: Context) {
         get() = prefs.getInt("pendingNotesBuild", 0).takeIf { it > 0 }?.let { it to prefs.getString("pendingNotes", "").orEmpty() }
         set(v) { prefs.edit().putInt("pendingNotesBuild", v?.first ?: 0).putString("pendingNotes", v?.second.orEmpty()).apply() }
 
+    /** Newest build seen on GitHub, and the newest one we've already sent a notification about. */
+    var availableBuild: Int
+        get() = prefs.getInt("availableBuild", 0)
+        set(v) { prefs.edit().putInt("availableBuild", v).apply() }
+
+    var lastNotifiedBuild: Int
+        get() = prefs.getInt("lastNotifiedBuild", 0)
+        set(v) { prefs.edit().putInt("lastNotifiedBuild", v).apply() }
+
     var lastUpdateCheck: Long
         get() = prefs.getLong("lastUpdateCheck", 0L)
         set(v) { prefs.edit().putLong("lastUpdateCheck", v).apply() }
