@@ -101,8 +101,6 @@ class ModelDownloadService : Service() {
     }
 
     private suspend fun download(wifiOnly: Boolean): DownloadState {
-        val token = Store(this).hfToken
-        if (token.isNullOrBlank()) return DownloadState.Failed("Add your Hugging Face token first.")
         val part = ModelDownloader.partFile(this)
         var link: String? = null
         var failures = 0
@@ -116,7 +114,7 @@ class ModelDownloadService : Service() {
             val before = part.length()
             try {
                 publish(if (before > 0) "Resuming download…" else "Contacting Hugging Face…", before)
-                val url = link ?: ModelDownloader.resolveSignedUrl(token).also { link = it }
+                val url = link ?: ModelDownloader.resolveSignedUrl().also { link = it }
                 val ctx = coroutineContext
                 ModelDownloader.fetch(url, part, keepGoing = { ctx.isActive }) { done ->
                     publish("Downloading AI model…", done)

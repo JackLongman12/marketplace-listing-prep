@@ -77,10 +77,11 @@ fun rememberMarketplaceSharer(vm: AppViewModel, settings: Settings): (Item) -> U
                     // Facebook only accepts shared photos for posts, groups and stories, not for a new
                     // Marketplace listing, so open the listing form; the photos are the newest in the
                     // gallery (cover first) and sit at the top of Facebook's photo picker.
-                    MarketplaceShare.openMarketplace(context)
+                    MarketplaceShare.openMarketplace(context, saved.size)
                     Toast.makeText(
                         context,
-                        "Tap Add photos: the newest ${saved.size} are this item's, cover first.",
+                        (if (MarketplaceShare.usesBrowser(saved.size)) "" else "Tap Sell, then ") +
+                            "Add photos: the newest ${saved.size} are this item's, cover first.",
                         Toast.LENGTH_LONG,
                     ).show()
                   } catch (e: Exception) {

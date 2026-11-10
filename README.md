@@ -17,11 +17,11 @@ Turn a pile of photos into ready-to-post Facebook Marketplace listings, entirely
 - **Your writing style.** Settings → *AI writing style* sets how every description reads (presets or your own instructions).
 - **Background clean-up.** After shooting you see a white-background preview of each photo and pick: this photo, all photos, or none. The original is always kept.
 - **Undo.** Deleting, merging and status changes show an Undo bar.
-- **Cloud writing (optional).** Off by default. Descriptions can be written by a cloud AI of your choice (Google Gemini, GitHub Models, OpenRouter, Groq or Mistral, with your own key) instead of on the phone; it falls back to the phone if the provider's limit is reached.
+- **AI on the phone.** Uses the phone's built-in Gemini Nano when it has one; otherwise a free one-tap download of Gemma 3n (4.4 GB, no account needed, verified against Google's fingerprint). You can delete the model in Settings any time.
 - **Price help (optional).** *Find typical second-hand price* asks Google's AI search what the item sells for used where you live (your own free Google AI Studio key; sends title, condition and location).
 - **Bulk select.** Long-press items to merge, mark posted/sold, or delete several at once.
 - **You check it.** Each item has a *Checked* switch; sharing stays locked until you've reviewed the photos and text.
-- **Posts it fast.** *Share to Marketplace* saves the photos cover-first, opens Facebook, and shows a floating panel with one-tap copy buttons for the title and description. *Done* marks the item posted.
+- **Posts it fast.** *Share to Marketplace* saves the photos cover-first, opens Facebook's Create listing form in the browser (or the Facebook app for listings with more than 5 photos, since its picker takes several at once), and shows a floating panel with one-tap copy buttons for the title and description. *Done* marks the item posted.
 
 ## Install
 
@@ -35,7 +35,7 @@ Built and tested for the Galaxy S26 Ultra (Android 13+, 64-bit ARM, 8 GB+ RAM re
 
 ## Privacy
 
-Photos, items and AI processing stay on the phone. The app can only connect to huggingface.co, to start the model download; all other connections are blocked. Shared photos carry no location data. See [SECURITY.md](SECURITY.md) for details and how to report a problem.
+Photos, items and AI processing stay on the phone. The app only connects to Hugging Face (model download), GitHub (updates) and, when you use them, the barcode and price lookups; all other connections are blocked. Crash reports stay on the phone and contain no personal data. Shared photos carry no location data. See [SECURITY.md](SECURITY.md) for details and how to report a problem.
 
 ## Build from source
 

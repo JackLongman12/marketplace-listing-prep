@@ -20,18 +20,28 @@ import javax.net.ssl.HttpsURLConnection
  * asks Hugging Face for a fresh link and resumes from the bytes already on disk.
  *
  * Security:
- * - The token is only sent to huggingface.co (exact host) to obtain the signed link; the CDN
- *   request carries no token. Every hop must be HTTPS and a Hugging Face host.
+ * - No account or token is sent anywhere. Every hop must be HTTPS and a Hugging Face host.
  * - The finished file is checked against Hugging Face's published SHA-256 before use.
  */
 object ModelDownloader {
     const val MODEL_PAGE = "https://huggingface.co/google/gemma-3n-E4B-it-litert-preview"
-    const val TOKEN_PAGE = "https://huggingface.co/settings/tokens/new?tokenType=read"
     const val FILE_NAME = "gemma-3n-E4B-it-int4.task"
     const val SIZE_BYTES = 4_405_655_031L
     /** From huggingface.co/api/models/google/gemma-3n-E4B-it-litert-preview (LFS oid). */
     const val SHA256 = "2b8e9d04bf8c5c50346d248c5e24a7e65102251c94dee6f04d5dce5ce3e6ac4f"
-    private const val URL_RESOLVE = "$MODEL_PAGE/resolve/main/$FILE_NAME"
+    /**
+     * Public copies of the exact same file that don't need a Hugging Face account. Which copy
+     * it comes from doesn't matter for safety: the finished file must match [SHA256] (Google's
+     * own published fingerprint) or it is deleted and never used. Tried in order.
+     */
+    private val MIRRORS = listOf(
+        "sparkreaderapp/gemma-3n-E4B-it-litert-preview",
+        "FindAngel/gemma-3n-E4B-it-int4",
+        "vba01/gemma-3n-E4B-it-int4",
+        "karis-fire/gemma-3n-E4B-it-int4",
+        "arpitx35/gemma-3n-E4B-it-int4",
+    )
+    const val LICENSE_PAGE = "https://ai.google.dev/gemma/terms"
     private const val PART_NAME = "$FILE_NAME.download"
     private const val TOKEN_HOST = "huggingface.co"
 
@@ -47,13 +57,22 @@ object ModelDownloader {
 
     fun partFile(context: Context) = File(ModelFiles.dir(context), PART_NAME)
 
-    /**
-     * Follows Hugging Face's redirects by hand. The token goes only to huggingface.co;
-     * the first hop to another host is the signed CDN link, returned without the token.
-     * Blocking network call.
-     */
-    fun resolveSignedUrl(token: String): String {
-        var url = URL(URL_RESOLVE)
+    /** Finds a working copy and returns its download link. No account or token needed. */
+    fun resolveSignedUrl(): String {
+        var last: IOException = IOException("No download source")
+        for (repo in MIRRORS) {
+            try {
+                return resolve("https://huggingface.co/$repo/resolve/main/$FILE_NAME")
+            } catch (e: Refused) {
+                last = e // that copy is gone or private: try the next one
+            }
+        }
+        throw last
+    }
+
+    /** Follows Hugging Face's redirects by hand; every hop must be HTTPS and a Hugging Face host. */
+    private fun resolve(start: String): String {
+        var url = URL(start)
         repeat(6) {
             require(url.protocol == "https") { "Refusing non-HTTPS link" }
             if (url.host != TOKEN_HOST) {
@@ -65,7 +84,6 @@ object ModelDownloader {
                 requestMethod = "HEAD"
                 connectTimeout = 15_000
                 readTimeout = 15_000
-                setRequestProperty("Authorization", "Bearer ${token.trim()}")
             }
             try {
                 when (val code = conn.responseCode) {
@@ -192,9 +210,6 @@ object ModelDownloader {
     }
 
     fun refusedMessage(code: Int): String = when (code) {
-        404 -> "The model file wasn't found on Hugging Face (HTTP 404). It may have moved; use Import model file instead."
-        else -> "Hugging Face refused the download (HTTP $code). Open the model page, make sure you're signed " +
-            "in and have accepted the Gemma license (approval can take a few minutes), and check the token " +
-            "is a Read token from the same account."
+        else -> "Couldn't find the model file on Hugging Face (HTTP $code). Update the app, or use Import model file instead."
     }
 }

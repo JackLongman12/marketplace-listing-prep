@@ -99,6 +99,7 @@ import com.listingprep.data.Status
 private const val SETTINGS = "__settings__"
 private const val CAMERA = "__camera__"
 private const val REVIEW = "__review__"
+private const val RESHOOT = "__reshoot__"
 
 @Composable
 fun App(
@@ -109,6 +110,9 @@ fun App(
     val state by vm.state.collectAsStateWithLifecycle()
     var screen by rememberSaveable { mutableStateOf<String?>(null) }
     var reviewIds by rememberSaveable { mutableStateOf(listOf<String>()) }
+    // Photo being re-shot: item id and photo position; the camera returns to that item.
+    var reshootId by rememberSaveable { mutableStateOf<String?>(null) }
+    var reshootIndex by rememberSaveable { mutableStateOf(0) }
     BackHandler(enabled = screen != null) { screen = null }
     val context = LocalContext.current
     // Background writing posts a "descriptions ready" notification; ask once.
@@ -145,10 +149,17 @@ fun App(
             onDone = { screen = null; reviewIds = emptyList(); vm.autoWrite() },
         )
         SETTINGS -> SettingsScreen(state, vm, onBack = { screen = null })
+        RESHOOT -> CameraScreen(single = true, onFinish = { groups ->
+            val id = reshootId
+            groups.firstOrNull()?.firstOrNull()?.let { file -> if (id != null) vm.replacePhoto(id, reshootIndex, file) }
+            screen = id
+        })
         else -> {
             val item = state.items.find { it.id == current }
             if (item == null) LaunchedEffect(current) { screen = null }
-            else ItemScreen(item, state, vm, onBack = { screen = null })
+            else ItemScreen(item, state, vm, onBack = { screen = null }, onReshoot = { i ->
+                reshootId = item.id; reshootIndex = i; vm.cameraOpened(); screen = RESHOOT
+            })
         }
     }
     if (state.updatePopup) UpdatePopup(state, vm)
@@ -158,7 +169,7 @@ fun App(
             title = { Text("Listing Prep closed unexpectedly") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Sorry about that. Copy the crash report and send it to me so I can fix it. It only says which part of the app failed; no photos or listing text.")
+                    Text("Sorry about that. Copy the crash report and send it to the developer so it can be fixed. It only has the app build, Android version, phone model, the day, and which lines of code failed: no photos, listing text, error messages or anything about you.")
                     Text(
                         report.lineSequence().take(4).joinToString("\n"),
                         style = MaterialTheme.typography.bodySmall,

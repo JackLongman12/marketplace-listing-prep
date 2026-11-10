@@ -36,8 +36,6 @@ import com.listingprep.ml.ProductLookup
 import com.listingprep.ml.PriceLookup
 import com.listingprep.ml.Gemini
 import com.listingprep.ml.Nano
-import com.listingprep.ml.OpenAiCompatible
-import com.listingprep.ml.Provider
 import com.listingprep.data.Photo
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -75,7 +73,6 @@ data class UiState(
     val progress: Float? = null,
     val generatingId: String? = null,
     val error: String? = null,
-    val hasHfToken: Boolean = false,
     /** Set after a manual import: the original file the user may want deleted. */
     val offerDeleteImportSource: String? = null,
     /** Non-null while the model is downloading in the background. */
@@ -88,8 +85,6 @@ data class UiState(
     val updatePopup: Boolean = false,
     val updateNote: String? = null,
     val hasPriceKey: Boolean = false,
-    /** Cloud providers with a saved key. */
-    val providerKeys: Set<String> = emptySet(),
     /** The phone's built-in Gemini Nano: READY, DOWNLOADABLE, DOWNLOADING or UNAVAILABLE (null = not checked yet). */
     val nano: Nano.State? = null,
     /** Result of "Find second-hand price" for one item. */
@@ -100,7 +95,7 @@ data class UiState(
     val crashReport: String? = null,
 ) {
     /** Descriptions can be written: the on-phone model is there, or Google writing is on with a key. */
-    val canWrite: Boolean get() = modelPath != null || nanoReady || (settings.cloudWriting && settings.writingProvider in providerKeys)
+    val canWrite: Boolean get() = modelPath != null || nanoReady
     val nanoReady: Boolean get() = settings.useNano && nano == Nano.State.READY
 }
 
@@ -154,9 +149,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             items = store.loadItems(),
             settings = store.loadSettings(),
             modelPath = ModelFiles.find(app)?.absolutePath,
-            hasHfToken = !store.hfToken.isNullOrBlank(),
             hasPriceKey = !store.geminiKey.isNullOrBlank(),
-            providerKeys = store.providersWithKeys(),
         )
     )
     val state = _state.asStateFlow()
@@ -172,6 +165,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         moveModelToKeptStorage()
         viewModelScope.launch(safe) { WritingService.stopRequests.collect { if (it > 0) stopWriting() } }
         viewModelScope.launch(safe) { UpdateState.error.collect { e -> if (e != null) { showError(e); UpdateState.error.value = null } } }
+        // Older builds needed a Hugging Face token to download the model; it is no longer used.
+        store.hfToken = null
+        store.clearOldProviderKeys() // cloud writing was removed: drop any saved keys
         announceUpdate()
         _state.update { it.copy(crashReport = CrashLog.read(ctx)) }
         refreshNano(download = true)
@@ -406,6 +402,22 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Quick re-shoot: a new camera photo takes this photo's place (same position, e.g. cover). Undo-able. */
+    fun replacePhoto(id: String, index: Int, file: File) {
+        val old = _state.value.items.find { it.id == id }?.photos?.getOrNull(index)
+        if (old == null) { file.delete(); return }
+        val fresh = Photo(Uri.fromFile(file).toString(), file.lastModified(), 0.0)
+        val cleanup: suspend () -> Unit = {
+            val used = _state.value.items.flatMap { it.photos }.flatMap { it.files() }.toSet()
+            releasePhotoAccess(old.files().filterNot { it in used })
+        }
+        undoable("Photo replaced", listOf(id), cleanup) {
+            updateItem(id) { item ->
+                item.copy(photos = item.photos.mapIndexed { i, p -> if (i == index) fresh else p }, checked = false)
+            }
+        }
+    }
+
     fun movePhoto(id: String, index: Int, target: MoveTarget) = setItems { items ->
         val i = items.indexOfFirst { it.id == id }
         if (i < 0) return@setItems items
@@ -577,12 +589,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun savePriceKey(key: String) {
         store.geminiKey = key.trim().ifBlank { null }
-        _state.update { it.copy(hasPriceKey = !store.geminiKey.isNullOrBlank(), providerKeys = store.providersWithKeys()) }
-    }
-
-    fun saveProviderKey(provider: String, key: String) {
-        store.setProviderKey(provider, key.trim().ifBlank { null })
-        _state.update { it.copy(hasPriceKey = !store.geminiKey.isNullOrBlank(), providerKeys = store.providersWithKeys()) }
+        _state.update { it.copy(hasPriceKey = !store.geminiKey.isNullOrBlank()) }
     }
 
     /** Checks the phone's built-in AI; asks Android to fetch it when the phone supports it. */
@@ -604,35 +611,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (!_state.value.nanoReady) return null
         val text = runCatching { Nano.generate(prompt, photo, temperature) }.getOrNull() ?: return null
         return Describer.parse(text).takeUnless { Describer.looksBroken(it) }
-    }
-
-    /** The cloud writer in use (provider, key, model), or null when writing on the phone. */
-    private fun cloudWriter(): Triple<Provider, String, String>? {
-        val st = _state.value.settings
-        if (!st.cloudWriting) return null
-        val provider = Provider.of(st.writingProvider)
-        val key = store.providerKey(provider.id) ?: return null
-        return Triple(provider, key, st.writingModel.trim().ifBlank { provider.defaultModel })
-    }
-
-    /** One request to the chosen cloud AI; returns its raw text. */
-    private suspend fun cloudText(writer: Triple<Provider, String, String>, prompt: String, photos: List<android.graphics.Bitmap>, temperature: Double): String {
-        val (provider, key, model) = writer
-        return withContext(Dispatchers.IO) {
-            if (provider == Provider.GEMINI) {
-                val parts = photos.map { Gemini.imagePart(it) } + Gemini.textPart(prompt)
-                Gemini.generate(key, parts, search = false, temperature = temperature).text
-            } else {
-                OpenAiCompatible.generate(provider, key, model, prompt, photos, temperature)
-            }
-        }
-    }
-
-    private fun cloudError(provider: Provider, e: Exception) = when (e) {
-        is Gemini.RateLimited, is OpenAiCompatible.RateLimited -> "${provider.label}'s limit was reached"
-        is Gemini.BadKey, is OpenAiCompatible.BadKey -> "${provider.label} didn't accept the API key"
-        is OpenAiCompatible.BadModel -> e.message ?: "Unknown model"
-        else -> "${provider.label} couldn't be reached (${e.message})"
     }
 
     fun findPrice(id: String) = work("Searching second-hand prices with Google…") {
@@ -712,17 +690,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         writingJob = work("Rewriting in a new tone…") {
             val item = _state.value.items.find { it.id == id } ?: return@work
             if (item.description.isBlank()) return@work
-            val writer = cloudWriter()
             val prompt = Describer.rewritePrompt(item.title, stripDefaults(item.description, _state.value.settings), tone)
             _state.update { it.copy(generatingId = id) }
-            val fromCloud = writer?.let {
-                runCatching { cloudText(it, prompt, emptyList(), 0.5) }
-                    .getOrNull()?.let { text -> Describer.parse(text).takeUnless { l -> Describer.looksBroken(l) } }
-            }
-            val fromNano = if (fromCloud == null) nanoListing(prompt, null, 0.5f) else null
+            val fromNano = nanoListing(prompt, null, 0.5f)
             val path = _state.value.modelPath
-            if (fromCloud == null && fromNano == null && path == null) throw IllegalStateException("No AI model yet. Add one in Settings, or turn on cloud writing.")
-            val listing = fromCloud ?: fromNano ?: withContext(Background) {
+            if (fromNano == null && path == null) throw IllegalStateException("No AI model yet. Download it in Settings.")
+            val listing = fromNano ?: withContext(Background) {
                 if (!describer.isLoaded(path!!)) {
                     progress("Loading AI model…", null)
                     describeLock.withLock { describer.ensureLoaded(path) }
@@ -869,8 +842,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun warmUp() {
         val path = _state.value.modelPath ?: return
-        // Not needed when Gemini Nano or a cloud AI writes; loading it then only costs memory.
-        if (_state.value.nanoReady || cloudWriter() != null) return
+        // Not needed when Gemini Nano writes; loading it then only costs memory.
+        if (_state.value.nanoReady) return
         if (describer.isLoaded(path)) return
         viewModelScope.launch(Background + safe) {
             runCatching { describeLock.withLock { describer.ensureLoaded(path) } }
@@ -880,10 +853,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun generateOne(id: String, ready: Deferred<Analysis>? = null, replacePrice: Boolean = false) {
         val item = _state.value.items.find { it.id == id } ?: return
         val settings = _state.value.settings
-        val writer = cloudWriter()
         val path = _state.value.modelPath
-        if (writer == null && path == null && !_state.value.nanoReady) {
-            throw IllegalStateException("No AI model yet. Add one in Settings, or turn on cloud writing.")
+        if (path == null && !_state.value.nanoReady) {
+            throw IllegalStateException("No AI model yet. Download it in Settings.")
         }
         _state.update { it.copy(generatingId = id) }
         val label = _state.value.busy
@@ -895,22 +867,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             val style = settings.writingStyle
             val place = Regions.describe(settings)
             var known = item.copy(codes = codes)
-            var cloudFailed: String? = null
 
-            // One attempt with whichever engine is in use; Google falls back to the phone if it can't answer.
+            // One attempt: Gemini Nano if the phone has it, otherwise the downloaded model.
             suspend fun attempt(): Describer.Companion.Listing? {
                 val prompt = Describer.prompt(known, analysis.ocr, style, place, Regions.current(settings).currency)
-                if (writer != null && cloudFailed == null) {
-                    try {
-                        return cloudListing(writer, item, prompt)
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        cloudFailed = cloudError(writer.first, e)
-                        if (path == null && !_state.value.nanoReady) throw IllegalStateException("$cloudFailed, and there's no on-phone model to fall back on.")
-                        progress("$cloudFailed, so this one is written on the phone…", _state.value.progress)
-                    }
-                }
                 // The phone's built-in Gemini Nano: fast, private, no big download.
                 nanoListing(prompt, analysis.cover, 0.2f)?.let { return it }
                 val p = path ?: return null
@@ -959,23 +919,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
         _state.update { it.copy(generatingId = null) }
-    }
-
-    /**
-     * Writes with Google Gemini: the same instructions as on the phone, plus up to three photos
-     * (cover first) re-encoded as fresh JPEGs, so no EXIF or location goes along. Opt-in only.
-     */
-    private suspend fun cloudListing(writer: Triple<Provider, String, String>, item: Item, prompt: String): Describer.Companion.Listing? {
-        val cr = ctx.contentResolver
-        val photos = item.photos.take(3).mapNotNull { p ->
-            runCatching { MediaInfo.decode(cr, Uri.parse(p.shown), 1024) }.getOrNull()
-        }
-        try {
-            val text = cloudText(writer, prompt, photos, 0.3)
-            return Describer.parse(text).takeUnless { Describer.looksBroken(it) }
-        } finally {
-            photos.forEach { it.recycle() }
-        }
     }
 
     /** Reads barcodes / QR codes from every photo (the code is often on just one angle). */
@@ -1157,7 +1100,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         store.hfToken = null
         store.geminiKey = null
-        store.clearProviderKeys()
         TokenVault.deleteKey()
         setItems { emptyList() } // goes through the same save queue, so no stale write lands after
         store.saveSettings(Settings())
@@ -1173,16 +1115,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---- one-tap model download -------------------------------------------
 
-    fun saveHfToken(token: String) {
-        store.hfToken = token.trim().ifBlank { null }
-        _state.update { it.copy(hasHfToken = !store.hfToken.isNullOrBlank()) }
+    /** Deletes the downloaded AI model (4.4 GB) to free space; it can be downloaded again any time. */
+    fun deleteModel() = viewModelScope.launch(safe) {
+        ModelDownloadService.cancel(ctx)
+        withContext(Background) { describeLock.withLock { describer.close() } }
+        withContext(Dispatchers.IO) {
+            listOfNotNull(ModelFiles.dir(ctx), ModelFiles.legacyDir(ctx))
+                .forEach { dir -> dir.listFiles()?.forEach { it.deleteRecursively() } }
+        }
+        refreshModelPath()
+        showError("AI model deleted.")
     }
 
     fun downloadModel(wifiOnly: Boolean = true) {
-        if (store.hfToken.isNullOrBlank()) {
-            showError("Add your Hugging Face token first.")
-            return
-        }
         val remaining = ModelDownloader.SIZE_BYTES - ModelDownloader.partFile(ctx).length()
         if (ModelDownloader.freeBytes(ctx) < remaining + 300_000_000L) {
             showError("Not enough free space: the model needs about 4.7 GB.")
@@ -1209,8 +1154,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                         when (s.result) {
                             ModelDownloader.Finish.OK -> {
                                 refreshModelPath()
-                                // The token is only needed to download; don't keep a secret we no longer use.
-                                saveHfToken("")
                             }
                             ModelDownloader.Finish.INCOMPLETE ->
                                 showError("The download finished but the file is incomplete. Tap Download again.")

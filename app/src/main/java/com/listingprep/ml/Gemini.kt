@@ -10,8 +10,8 @@ import java.net.URL
 import javax.net.ssl.HttpsURLConnection
 
 /**
- * Minimal, locked-down client for Google's Gemini API, shared by the price search and the
- * optional cloud writing.
+ * Minimal, locked-down client for Google's Gemini API, shared by the price search and
+ * looking up a product you named.
  * - HTTPS to generativelanguage.googleapis.com only (also enforced by the network security
  *   config); redirects refused; timeouts; replies capped at 1 MB and parsed as plain data.
  * - The API key goes in a request header, never in a URL.

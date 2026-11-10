@@ -73,7 +73,7 @@ fun cameraPhotoDir(context: Context) = File(context.filesDir, "photos").apply { 
  * Pinch to zoom, tap to focus.
  */
 @Composable
-fun CameraScreen(onFinish: (List<List<File>>) -> Unit) {
+fun CameraScreen(single: Boolean = false, onFinish: (List<List<File>>) -> Unit) {
     val context = LocalContext.current
     val view = LocalView.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -130,6 +130,8 @@ fun CameraScreen(onFinish: (List<List<File>>) -> Unit) {
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                     saving--
+                    // Re-shooting one photo: the first shot replaces it and the camera closes.
+                    if (single) { onFinish(listOf(listOf(file))); return }
                     groups = groups.mapIndexed { i, g -> if (i == group) g + file else g }
                 }
 
@@ -227,7 +229,8 @@ fun CameraScreen(onFinish: (List<List<File>>) -> Unit) {
                         .background(Color.White)
                         .clickable(enabled = granted) { shoot() },
                 )
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                if (single) TextButton(onClick = { finish() }) { Text("Cancel", color = Color.White) }
+                else Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Button(
                         onClick = { groups = groups + listOf(emptyList()) },
                         enabled = current.isNotEmpty(),

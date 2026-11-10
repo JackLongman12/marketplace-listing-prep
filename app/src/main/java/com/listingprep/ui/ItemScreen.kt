@@ -100,7 +100,7 @@ import com.listingprep.data.Status
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-internal fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () -> Unit) {
+internal fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () -> Unit, onReshoot: (Int) -> Unit = {}) {
     val idle = state.busy == null
     val index = state.items.indexOfFirst { it.id == item.id }
     val share = rememberMarketplaceSharer(vm, state.settings)
@@ -161,6 +161,7 @@ internal fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: ()
                         onCover = { vm.setCover(item.id, i) },
                         onMove = { target -> vm.movePhoto(item.id, i, target) },
                         onRemove = { vm.removePhoto(item.id, i) },
+                        onReshoot = { onReshoot(i) },
                         onView = { viewing = i },
                         onRemoveBackground = { editBackground = i },
                         onRestore = { vm.setCutout(item.id, i, null) },
@@ -414,6 +415,7 @@ internal fun PhotoThumb(
     onCover: () -> Unit,
     onMove: (MoveTarget) -> Unit,
     onRemove: () -> Unit,
+    onReshoot: () -> Unit,
     onRemoveBackground: () -> Unit,
     onRestore: () -> Unit,
     onView: () -> Unit,
@@ -461,6 +463,7 @@ internal fun PhotoThumb(
                 onClick = { menu = false; onRemoveBackground() },
             )
             if (photo.cutout != null) DropdownMenuItem(text = { Text("Restore original background") }, onClick = { menu = false; onRestore() })
+            DropdownMenuItem(text = { Text("Re-shoot this photo") }, onClick = { menu = false; onReshoot() })
             DropdownMenuItem(text = { Text("Remove from item") }, onClick = { menu = false; onRemove() })
         }
     }

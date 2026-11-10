@@ -31,11 +31,7 @@ class Store(context: Context) {
         onlineLookup = prefs.getBoolean("onlineLookup", true),
         autoWrite = prefs.getBoolean("autoWrite", true),
         autoUpdate = prefs.getBoolean("autoUpdate", true),
-        listingInBrowser = prefs.getBoolean("listingInBrowser", true),
-        cloudWriting = prefs.getBoolean("cloudWriting", false),
         useNano = prefs.getBoolean("useNano", true),
-        writingProvider = prefs.getString("writingProvider", null) ?: "gemini",
-        writingModel = prefs.getString("writingModel", null) ?: "",
         region = prefs.getString("region", null) ?: "",
         city = prefs.getString("city", null) ?: "",
         area = prefs.getString("area", null) ?: "",
@@ -50,11 +46,7 @@ class Store(context: Context) {
             .putBoolean("onlineLookup", s.onlineLookup)
             .putBoolean("autoWrite", s.autoWrite)
             .putBoolean("autoUpdate", s.autoUpdate)
-            .putBoolean("listingInBrowser", s.listingInBrowser)
-            .putBoolean("cloudWriting", s.cloudWriting)
             .putBoolean("useNano", s.useNano)
-            .putString("writingProvider", s.writingProvider)
-            .putString("writingModel", s.writingModel)
             .putString("region", s.region)
             .putString("city", s.city)
             .putString("area", s.area)
@@ -82,22 +74,13 @@ class Store(context: Context) {
         }
 
     /** Build the user last opened, and the notes of the update being installed, for the "Updated" pop-up. */
-    /** API key for a cloud provider, encrypted with the Keystore key. Gemini uses [geminiKey]. */
-    fun providerKey(id: String): String? =
-        if (id == "gemini") geminiKey else prefs.getString("key_$id", null)?.let(TokenVault::decrypt)
-
-    fun setProviderKey(id: String, key: String?) {
-        if (id == "gemini") { geminiKey = key; return }
+    /** Cloud writing was removed; deletes the keys older builds saved for it. */
+    fun clearOldProviderKeys() {
         prefs.edit().apply {
-            if (key.isNullOrBlank()) remove("key_$id") else putString("key_$id", TokenVault.encrypt(key.trim()))
+            listOf("github", "openrouter", "groq", "mistral").forEach { remove("key_$it") }
+            remove("cloudWriting"); remove("writingProvider"); remove("writingModel"); remove("listingInBrowser")
         }.apply()
     }
-
-    /** Providers that have a key saved. */
-    fun providersWithKeys(): Set<String> =
-        listOf("gemini", "github", "openrouter", "groq", "mistral").filter { !providerKey(it).isNullOrBlank() }.toSet()
-
-    fun clearProviderKeys() = listOf("github", "openrouter", "groq", "mistral").forEach { setProviderKey(it, null) }
 
     var lastSeenBuild: Long
         get() = prefs.getLong("lastSeenBuild", 0L)

@@ -160,7 +160,7 @@ class ShareOverlayService : Service() {
                 button("Description") { copy("Description", description) },
             ))
             addView(row(
-                button("Open Facebook") { MarketplaceShare.openMarketplace(this@ShareOverlayService) },
+                button("Open Facebook") { MarketplaceShare.openMarketplace(this@ShareOverlayService, photos) },
                 button("Done ✓") { finishPosted(id) },
                 button("✕") { stopSelf() },
             ))

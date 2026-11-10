@@ -12,7 +12,7 @@ Please report security issues privately through GitHub:
   by this app.
 - **Network allowlist.** The app trusts no certificate authority except for Hugging Face
   (`huggingface.co`, `hf.co` and their subdomains), used only for the one-time model
-  download. The token goes only to `huggingface.co`, to get a short-lived signed link. All other connections, including telemetry from bundled libraries, fail. Plain HTTP
+  download (no account or token is sent). All other connections, including telemetry from bundled libraries, fail. Plain HTTP
   is disabled.
 - **Barcode lookup.** Only when the AI can't identify an item and the item has a valid
   retail barcode (EAN/UPC/ISBN check digit verified). Only the number is sent, over HTTPS,
@@ -24,22 +24,23 @@ Please report security issues privately through GitHub:
   title, condition and your Settings location to `generativelanguage.googleapis.com` only
   (Gemini with Google Search), over HTTPS, no redirects, replies capped at 1 MB. No photos,
   description or notes. On Google's free tier Google may use requests to improve its products.
-- **Cloud writing (off by default).** If you turn it on (Settings → Cloud writing, with a
-  confirmation), writing a description sends up to 3 of the item's photos (re-encoded, no EXIF or
-  location), the text read from them, your notes and your location to the provider you chose:
-  Google Gemini, GitHub Models, OpenRouter, Groq or Mistral, using your own key (stored encrypted).
-  Each provider has one fixed HTTPS host in the network allowlist. When it's off, nothing about your
-  photos leaves the phone.
+- **No cloud writing.** Descriptions are always written on the phone (Gemini Nano or Gemma 3n);
+  photos never leave the phone.
 - **App updates.** The app reads this repo's latest release from `api.github.com` and
   downloads the APK from GitHub's hosts (HTTPS, no token, nothing about you sent). Before
   installing it checks the published SHA-256, that the package name matches, that the build
   is newer, and that the APK is signed with the same key as the installed app. A build signed
   by anyone else is rejected. Off switch in Settings → Updates.
-- **Model download.** Done by the app itself from the signed link on Hugging Face's CDN
-  (hf.co / huggingface.co hosts only, HTTPS only); the token is never sent to the CDN.
-  Interrupted downloads resume with a freshly signed link. The file must match Hugging Face's published SHA-256 before it's loaded,
-  and the token is deleted from the phone once the model is installed.
-- **Token storage.** Encrypted with an AES-256-GCM key held in the Android Keystore.
+- **Model download.** No account or token. The file comes from public Hugging Face copies of
+  Google's Gemma 3n file (hf.co / huggingface.co hosts only, HTTPS only). Whichever copy it
+  comes from, it must match the SHA-256 Google published for the official file, or it's deleted
+  and never loaded. Interrupted downloads resume with a freshly signed link.
+- **Key storage.** The optional price-search key is encrypted with an AES-256-GCM key held in
+  the Android Keystore.
+- **Crash reports.** Saved on the phone only, offered for copying on the next start. They hold
+  the app build, Android version, phone model, the day, and the error type with the lines of
+  code it went through. Error messages are left out (they can contain listing text, file names
+  or keys); no photos, items, settings or identifiers.
 - **Shared photos.** Re-encoded as new JPEGs with no EXIF (no GPS location, no camera data).
   The app doesn't request `ACCESS_MEDIA_LOCATION`, so Android hides photo locations from it too.
 - **No backups.** App data is excluded from cloud backup and device-to-device transfer.
@@ -48,7 +49,7 @@ Please report security issues privately through GitHub:
 - **Camera photos.** Kept in the app's private storage, never added to the gallery, no
   location recorded. Deleted with their item.
 - **Uninstall.** Android asks whether to keep app data. Unticked (default), uninstalling
-  removes items, camera photos, the model, the token and its key. Ticked, they stay for the
+  removes items, camera photos, the model, the price-search key and its encryption key. Ticked, they stay for the
   next install of this app (same signing key only). Photo
   copies in `Pictures/ListingPrep` are deleted when an item is posted or deleted; Settings →
   Privacy → *Erase everything* removes all remaining app data before you uninstall.

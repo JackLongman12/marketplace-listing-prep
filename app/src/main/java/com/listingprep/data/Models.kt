@@ -58,16 +58,8 @@ data class Settings(
     val onlineLookup: Boolean = true,
     /** Write descriptions automatically after taking photos. */
     val autoWrite: Boolean = true,
-    /** Opt-in: write descriptions with Google Gemini (photos are sent to Google) instead of on the phone. */
-    val cloudWriting: Boolean = false,
     /** Use the phone's built-in Gemini Nano when the phone has it (before the 4.4 GB model). */
     val useNano: Boolean = true,
-    /** Which cloud AI writes ("gemini", "github", "openrouter", "groq", "mistral"). */
-    val writingProvider: String = "gemini",
-    /** Model name at that provider; blank = the provider's default. */
-    val writingModel: String = "",
-    /** Open Facebook's Create listing form in the browser (it opens the form itself; the app only shows Marketplace). */
-    val listingInBrowser: Boolean = true,
     /** Download new builds from GitHub and install them when you leave the app. */
     val autoUpdate: Boolean = true,
     /** ISO region code (e.g. "HK" for Hong Kong SAR); blank = the phone's region. */

@@ -157,6 +157,18 @@ class RulesTest {
         assertNull(PriceLookup.parse("Couldn't find anything.\nPRICE: unknown", emptyList()).price)
     }
 
+    // ---- crash reports -------------------------------------------------------
+
+    @Test fun crashTraceLeavesOutMessages() {
+        val e = IllegalStateException("secret listing text hf_abc123", RuntimeException("/storage/emulated/0/DCIM/me.jpg"))
+        val t = CrashLog.trace(e)
+        assertTrue(t.contains("java.lang.IllegalStateException"))
+        assertTrue(t.contains("Caused by java.lang.RuntimeException"))
+        assertFalse(t.contains("secret"))
+        assertFalse(t.contains("hf_abc123"))
+        assertFalse(t.contains("DCIM"))
+    }
+
     @Test fun rounding() {
         assertEquals("330", PriceLookup.round(329.99))
         assertEquals("12.50", PriceLookup.round(12.5))

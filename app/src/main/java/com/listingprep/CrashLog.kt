@@ -3,16 +3,19 @@ package com.listingprep
 import android.content.Context
 import android.os.Build
 import java.io.File
-import java.io.PrintWriter
-import java.io.StringWriter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 /**
- * Keeps a short report when the app crashes, on the phone only (nothing is sent anywhere).
- * Next time the app opens it offers to copy the report, so a bug can be fixed from it.
- * The report is the error and where in the code it happened; no photos or listing text.
+ * Keeps a short report when the app crashes, on the phone only.
+ *
+ * Privacy: the report holds only what's needed to find the bug:
+ * - app build, Android version and phone model (e.g. SM-S948B);
+ * - the day it happened (no time);
+ * - the error's type and the lines of code it went through.
+ * Error *messages* are left out on purpose, because they can contain text from your listings,
+ * file names, web addresses or keys. No photos, items, settings, accounts or identifiers.
  */
 object CrashLog {
     private fun file(context: Context) = File(context.filesDir, "last-crash.txt")
@@ -21,25 +24,43 @@ object CrashLog {
         val app = context.applicationContext
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, error ->
-            runCatching { record(app, error, fatal = true, where = thread.name) }
+            runCatching { file(app).writeText(report(app, error)) }
             previous?.uncaughtException(thread, error)
         }
     }
 
-    /** Also used for errors that were caught (fatal = false), so they can be reported too. */
-    fun record(context: Context, error: Throwable, fatal: Boolean, where: String = "") {
-        val trace = StringWriter().also { error.printStackTrace(PrintWriter(it)) }.toString()
+    /** The private-safe report for [error] (see the class comment for what it contains). */
+    fun report(context: Context, error: Throwable): String {
         val build = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode }.getOrDefault(0L)
-        val text = buildString {
+        return buildString {
             appendLine("Listing Prep build $build, Android ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT}), ${Build.MODEL}")
-            appendLine("${if (fatal) "Crash" else "Error"} at ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())}${if (where.isNotBlank()) " on $where" else ""}")
-            appendLine()
-            append(trace.lineSequence().take(60).joinToString("\n"))
-        }
-        if (fatal || !file(context).exists()) file(context).writeText(text.take(12_000))
+            appendLine("Crash on ${SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())}")
+            append(trace(error))
+        }.take(8_000)
     }
 
-    fun read(context: Context): String? = file(context).takeIf { it.exists() }?.readText()
+    /** Error types and code locations only; never the messages. */
+    internal fun trace(error: Throwable): String = buildString {
+        var e: Throwable? = error
+        var depth = 0
+        val seen = HashSet<Throwable>()
+        while (e != null && depth < 5 && seen.add(e)) {
+            appendLine()
+            appendLine(if (depth == 0) e.javaClass.name else "Caused by ${e.javaClass.name}")
+            e.stackTrace.take(25).forEach { f ->
+                appendLine("  at ${f.className}.${f.methodName}(${f.fileName ?: "?"}:${f.lineNumber})")
+            }
+            e = e.cause
+            depth++
+        }
+    }
+
+    fun read(context: Context): String? {
+        val text = file(context).takeIf { it.exists() }?.readText() ?: return null
+        // Reports from older builds included error messages: drop them rather than show or share them.
+        if (!text.contains("\nCrash on ")) { clear(context); return null }
+        return text
+    }
 
     fun clear(context: Context) {
         file(context).delete()

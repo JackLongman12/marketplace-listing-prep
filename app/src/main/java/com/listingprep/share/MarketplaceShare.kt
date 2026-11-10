@@ -22,16 +22,23 @@ object MarketplaceShare {
     fun panelPermissionIntent(context: Context) =
         Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
 
-    /** Tries the Facebook app on the create-listing link, then the app's home, then the browser. */
     /**
-     * Opens Facebook's "Create listing" form.
-     * - In the browser (default): facebook.com/marketplace/create/item opens the form itself.
-     *   The Facebook app ignores that link's "create" part and only shows Marketplace.
-     * - In the Facebook app: one of its screens is picked directly, so there's no "which
-     *   Facebook?" question; you then tap Sell yourself.
+     * Facebook's website only takes one photo at a time, so a listing with more photos than
+     * this opens the Facebook app instead (its picker takes many at once).
      */
-    fun openMarketplace(context: Context) {
-        val inBrowser = com.listingprep.data.Store(context).loadSettings().listingInBrowser
+    const val MAX_WEB_PHOTOS = 5
+
+    fun usesBrowser(photos: Int) = photos <= MAX_WEB_PHOTOS
+
+    /**
+     * Opens Facebook for a new listing.
+     * - Up to [MAX_WEB_PHOTOS] photos: the browser, where facebook.com/marketplace/create/item
+     *   opens the Create listing form itself.
+     * - More photos: the Facebook app on Marketplace (it ignores the link's "create" part);
+     *   one of its screens is picked directly, so there's no "which Facebook?" question.
+     */
+    fun openMarketplace(context: Context, photos: Int) {
+        val inBrowser = usesBrowser(photos)
         val pm = context.packageManager
         val view = Intent(Intent.ACTION_VIEW, CREATE_URL).addCategory(Intent.CATEGORY_BROWSABLE)
         val browser = run {

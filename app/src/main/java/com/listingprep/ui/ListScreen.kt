@@ -253,11 +253,7 @@ internal fun ItemListScreen(
                                     "Photo grouping works now. Descriptions need the free 4.4 GB Gemma model.",
                                     style = MaterialTheme.typography.bodySmall,
                                 )
-                                if (state.hasHfToken) {
-                                    Button(onClick = { vm.downloadModel() }, enabled = idle) { Text("Download AI model") }
-                                } else {
-                                    TextButton(onClick = onSettings) { Text("Set up model download") }
-                                }
+                                Button(onClick = { vm.downloadModel() }, enabled = idle) { Text("Download AI model (Wi-Fi)") }
                             }
                         }
                     }
