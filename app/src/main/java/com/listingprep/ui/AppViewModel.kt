@@ -929,7 +929,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 // Known product: start the price at its original retail price (MSRP); change it any time.
                 // Start the price at the product's original retail price (MSRP) when the AI gives one.
                 // Refresh and "What is it?" replace the old price; a normal write only fills an empty one.
-                price = listing.msrp?.takeIf { it.price.isBlank() || replacePrice }?.let(PriceLookup::round) ?: it.price,
+                price = listing.msrp?.takeIf { _ -> it.price.isBlank() || replacePrice }?.let(PriceLookup::round) ?: it.price,
             )
         }
         _state.update { it.copy(generatingId = null) }
