@@ -169,7 +169,22 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         store.hfToken = null
         store.clearOldProviderKeys() // cloud writing was removed: drop any saved keys
         announceUpdate()
-        _state.update { it.copy(crashReport = CrashLog.read(ctx)) }
+        CrashLog.read(ctx)?.let { report ->
+            if (CrashLog.canSend && _state.value.settings.crashReports) {
+                // Sent automatically (anonymous, see CrashLog); kept for next time if offline.
+                viewModelScope.launch(Dispatchers.IO + safe) {
+                    when (CrashLog.send(report)) {
+                        CrashLog.Sent.YES, CrashLog.Sent.REJECTED -> {
+                            CrashLog.clear(ctx)
+                            showError("Listing Prep closed unexpectedly last time. An anonymous crash report was sent so it can be fixed.")
+                        }
+                        CrashLog.Sent.NO_RETRY_LATER -> Unit
+                    }
+                }
+            } else {
+                _state.update { it.copy(crashReport = report) }
+            }
+        }
         refreshNano(download = true)
         // Nothing is mid-install at launch, so any downloaded update file is leftover: remove it.
         viewModelScope.launch(Dispatchers.IO + safe) { Updater.apkFile(ctx).parentFile?.deleteRecursively() }

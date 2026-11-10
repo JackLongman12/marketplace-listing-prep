@@ -7,3 +7,8 @@
 -dontwarn autovalue.shaded.**
 -dontwarn javax.lang.model.**
 -dontwarn org.checkerframework.**
+
+# Readable crash reports: keep real class/method names and line numbers (the code is open
+# source, so there's nothing to hide). Unused code is still removed.
+-dontobfuscate
+-keepattributes SourceFile,LineNumberTable

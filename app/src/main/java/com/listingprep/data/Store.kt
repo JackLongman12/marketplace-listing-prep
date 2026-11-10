@@ -31,6 +31,7 @@ class Store(context: Context) {
         onlineLookup = prefs.getBoolean("onlineLookup", true),
         autoWrite = prefs.getBoolean("autoWrite", true),
         autoUpdate = prefs.getBoolean("autoUpdate", true),
+        crashReports = prefs.getBoolean("crashReports", true),
         useNano = prefs.getBoolean("useNano", true),
         region = prefs.getString("region", null) ?: "",
         city = prefs.getString("city", null) ?: "",
@@ -46,6 +47,7 @@ class Store(context: Context) {
             .putBoolean("onlineLookup", s.onlineLookup)
             .putBoolean("autoWrite", s.autoWrite)
             .putBoolean("autoUpdate", s.autoUpdate)
+            .putBoolean("crashReports", s.crashReports)
             .putBoolean("useNano", s.useNano)
             .putString("region", s.region)
             .putString("city", s.city)

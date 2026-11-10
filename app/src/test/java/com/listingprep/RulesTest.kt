@@ -169,6 +169,16 @@ class RulesTest {
         assertFalse(t.contains("DCIM"))
     }
 
+    @Test fun crashTraceMatchesWhatTheRelayAccepts() {
+        // Same patterns as relay/src/index.js: if these drift, the relay would reject reports.
+        val cls = Regex("""^(Caused by )?[A-Za-z_$][\w$.]{0,200}$""")
+        val frame = Regex("""^  at [\w$.<>\-]{1,300}\([\w$.?\-]{1,120}:-?\d{1,7}\)$""")
+        val t = CrashLog.trace(IllegalStateException("x", RuntimeException("y")))
+        t.lines().filter { it.isNotEmpty() }.forEach { line ->
+            assertTrue("relay would reject: $line", cls.matches(line) || frame.matches(line))
+        }
+    }
+
     @Test fun rounding() {
         assertEquals("330", PriceLookup.round(329.99))
         assertEquals("12.50", PriceLookup.round(12.5))

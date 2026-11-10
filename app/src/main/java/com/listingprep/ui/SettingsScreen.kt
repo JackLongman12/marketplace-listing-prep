@@ -222,7 +222,7 @@ internal fun SettingsScreen(state: UiState, vm: AppViewModel, onBack: () -> Unit
             TextButton(onClick = { vm.refreshNano(download = state.settings.useNano) }) { Text("Check again") }
 
             HorizontalDivider()
-            Text("Updates", style = MaterialTheme.typography.titleMedium)
+            Text("Updates and crash reports", style = MaterialTheme.typography.titleMedium)
             SettingSwitch(
                 title = "Update automatically",
                 detail = "Checks this app's GitHub releases, downloads a new build and installs it when you leave the app. " +
@@ -230,6 +230,16 @@ internal fun SettingsScreen(state: UiState, vm: AppViewModel, onBack: () -> Unit
                 checked = state.settings.autoUpdate,
                 onChange = { on -> vm.updateSettings { it.copy(autoUpdate = on) } },
             )
+            if (com.listingprep.CrashLog.canSend) {
+                SettingSwitch(
+                    title = "Send crash reports automatically",
+                    detail = "If the app crashes, a report is posted to the app's public issue board on GitHub. It only has the " +
+                        "app build, Android version, phone model, the day and which lines of code failed: no error messages, " +
+                        "photos, listings or anything about you. Off: you're offered a copy instead.",
+                    checked = state.settings.crashReports,
+                    onChange = { on -> vm.updateSettings { it.copy(crashReports = on) } },
+                )
+            }
             OutlinedButton(onClick = { vm.checkForUpdate() }, enabled = !state.updatePopup) {
                 Text("Check for updates (now on build ${remember { com.listingprep.update.Updater.installedBuild(context) }})")
             }

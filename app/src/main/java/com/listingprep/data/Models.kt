@@ -62,6 +62,8 @@ data class Settings(
     val useNano: Boolean = true,
     /** Download new builds from GitHub and install them when you leave the app. */
     val autoUpdate: Boolean = true,
+    /** Send anonymous crash reports to the public issue board automatically. */
+    val crashReports: Boolean = true,
     /** ISO region code (e.g. "HK" for Hong Kong SAR); blank = the phone's region. */
     val region: String = "",
     /** State / province code (ISO 3166-2) and its readable name path, e.g. "Scotland, Aberdeen City". */

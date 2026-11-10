@@ -1,0 +1,26 @@
+name = "lp-crash-relay"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+# Nothing is logged or stored.
+[observability]
+enabled = false
+
+[vars]
+GITHUB_REPO = "JackLongman12/marketplace-listing-prep"
+
+# At most 5 reports a minute from one sender...
+[[ratelimits]]
+name = "PER_SENDER"
+namespace_id = "1001"
+simple = { limit = 5, period = 60 }
+
+# ...and 30 a minute in total.
+[[ratelimits]]
+name = "OVERALL"
+namespace_id = "1002"
+simple = { limit = 30, period = 60 }
+
+# Secret (set with `npx wrangler secret put GITHUB_TOKEN`, never in this file):
+#   GITHUB_TOKEN = fine-grained GitHub token, this repo only, "Issues: Read and write".
