@@ -17,6 +17,7 @@ object Nano {
     enum class State { READY, DOWNLOADABLE, DOWNLOADING, UNAVAILABLE }
 
     private val model by lazy { Generation.getClient() }
+    private const val MAX_OUTPUT = 1024
 
     suspend fun state(): State = runCatching {
         when (model.checkStatus()) {
@@ -45,9 +46,15 @@ object Nano {
     /** One answer from Gemini Nano, from the prompt and (optionally) one photo. */
     suspend fun generate(prompt: String, photo: Bitmap?, temperature: Float): String {
         val request = if (photo != null) {
-            generateContentRequest(ImagePart(photo), TextPart(prompt)) { this.temperature = temperature }
+            generateContentRequest(ImagePart(photo), TextPart(prompt)) {
+                this.temperature = temperature
+                maxOutputTokens = MAX_OUTPUT // the default is short and cut listings off mid-sentence
+            }
         } else {
-            generateContentRequest(TextPart(prompt)) { this.temperature = temperature }
+            generateContentRequest(TextPart(prompt)) {
+                this.temperature = temperature
+                maxOutputTokens = MAX_OUTPUT
+            }
         }
         return model.generateContent(request).candidates.firstOrNull()?.text.orEmpty()
     }

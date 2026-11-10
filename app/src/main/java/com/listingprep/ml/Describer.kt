@@ -137,8 +137,9 @@ class Describer(private val context: Context) : Closeable {
             context,
             LlmInference.LlmInferenceOptions.builder()
                 .setModelPath(path)
-                // Prompt + one photo (256 tokens) + answer fit in ~1k; a smaller cache is faster.
-                .setMaxTokens(1280)
+                // Prompt (~700 tokens with the example) + one photo (256) + a full answer (~400).
+                // 1280 left too little room and cut descriptions off.
+                .setMaxTokens(2048)
                 .setMaxNumImages(MAX_IMAGES)
                 .setPreferredBackend(backend)
                 .build(),
@@ -228,6 +229,7 @@ class Describer(private val context: Context) : Closeable {
             appendLine("Answer in exactly this format:")
             appendLine("TITLE: <rewritten title, under 70 characters>")
             appendLine("DESCRIPTION: <rewritten description; keep short \"- \" lines for the details>")
+            appendLine("IDENTIFIED: yes")
         }
 
         data class Listing(val title: String, val description: String, val identified: Boolean, val msrp: Double? = null)
@@ -240,6 +242,8 @@ class Describer(private val context: Context) : Closeable {
             val msrp = msrpLine.find(raw)?.groupValues?.get(1)
                 ?.let { Regex("""[0-9][0-9,]*(\.[0-9]+)?""").find(it)?.value }
                 ?.replace(",", "")?.toDoubleOrNull()?.takeIf { it > 0 && it < 1_000_000 }
+            // The model always ends with IDENTIFIED/MSRP; if they're missing, the answer was cut off.
+            val complete = idLine.containsMatchIn(raw) || msrpLine.containsMatchIn(raw)
             val text = raw.replace("**", "").replace(idLine, "").replace(msrpLine, "").trim()
             val title = Regex("""TITLE:\s*(.+)""", RegexOption.IGNORE_CASE)
                 .find(text)?.groupValues?.get(1)?.trim().orEmpty()
@@ -249,7 +253,19 @@ class Describer(private val context: Context) : Closeable {
             } else {
                 text.lines().filterNot { it.trim().startsWith("TITLE:", ignoreCase = true) }.joinToString("\n").trim()
             }
-            return Listing(title.take(100), description, identified, msrp)
+            return Listing(title.take(100), if (complete) description else trimToLastComplete(description), identified, msrp)
+        }
+
+        /** Drops a half-written last sentence or line, so a cut-off answer never ends mid-word. */
+        fun trimToLastComplete(text: String): String {
+            val t = text.trimEnd()
+            if (t.isEmpty() || t.last() in ".!?)\"'") return t
+            val lines = t.lines()
+            val last = lines.last()
+            // "- " detail lines often have no full stop, so they're left alone; a sentence is cut back to its last full stop.
+            if (last.trimStart().startsWith("-")) return t
+            val stop = t.lastIndexOfAny(charArrayOf('.', '!', '?'))
+            return if (stop > t.length / 3) t.substring(0, stop + 1) else t
         }
 
         /**
