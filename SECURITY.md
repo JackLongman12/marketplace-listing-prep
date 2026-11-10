@@ -75,7 +75,8 @@ Please report security issues privately through GitHub:
 - `main` is protected by a ruleset: no force-pushes or deletion, and a commit can only land on
   `main` once the Check workflow has built and tested it (commit status `verified`). So no
   untested code becomes an update.
-- Every release's notes state the SHA-256 of the signing certificate. Genuine builds are only
+- Every release's notes state the SHA-256 of the signing certificate:
+  `ecfc14f56d1a0f50377ce249a237a3381e2b1778c51725b242b68916208d5a99`. Genuine builds are only
   published in this repo's Releases; the app refuses updates signed with any other key.
 - The biggest remaining risk is someone taking over the maintainer's GitHub account (it could
   publish a signed build). The account uses a passkey/2FA for that reason.
