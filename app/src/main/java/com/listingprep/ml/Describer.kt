@@ -168,12 +168,13 @@ class Describer(private val context: Context) : Closeable {
         /** One photo (the cover): each photo costs the model ~256 tokens; the others are still read for text and codes. */
         const val MAX_IMAGES = 1
 
-        fun prompt(item: Item, ocrText: String, style: String, place: String = ""): String = buildString {
-            appendLine("You write Facebook Marketplace listings for used items. Look carefully at the photo(s) first.")
+        fun prompt(item: Item, ocrText: String, style: String, place: String = "", currency: String = ""): String = buildString {
+            appendLine("You write product descriptions for second-hand items on Facebook Marketplace. Look carefully at the photo(s) first, work out what the product is, then write the kind of description a good shop would write for it: what it is, what it's for, its key features and specs, then its condition.")
+            appendLine("Don't narrate the photo: never write things like \"This is a black leather wallet\" or \"The image shows\". Write about the product itself.")
             if (style.isNotBlank()) {
                 appendLine("WRITING STYLE (the seller's own instructions; follow them for tone, length and wording): ${style.trim().take(800)}")
             }
-            appendLine("Describe ONLY what you can actually see or what the facts below say. If you are not sure what the item is, use a plain general name (for example \"desk lamp\", \"backpack\").")
+            appendLine("Only state facts you can see, read below, or reliably know about this exact product. If you can't tell the exact product, describe it by type (for example \"genuine leather bifold wallet\") without inventing a brand or model.")
             appendLine()
             appendLine("FACTS")
             if (item.identity.isNotBlank()) appendLine(
@@ -192,20 +193,22 @@ class Describer(private val context: Context) : Closeable {
             if (place.isNotBlank()) appendLine("Seller location: $place (use the spelling and units normal there)")
             appendLine()
             appendLine(if (style.isNotBlank()) "EXAMPLE of the format only (a different item; use the seller's WRITING STYLE, not this tone):" else "EXAMPLE of the format and tone (a different item):")
-            appendLine("TITLE: IKEA Markus office chair, black mesh")
+            appendLine("TITLE: Bose QuietComfort 45 noise cancelling headphones, black")
             appendLine("DESCRIPTION:")
-            appendLine("Comfortable high-back office chair with a mesh back and adjustable height. Good for a home office or study.")
-            appendLine("- Black mesh back, black fabric seat")
-            appendLine("- Height adjustable, tilt works")
-            appendLine("- Small scuff on the left armrest")
+            appendLine("Wireless over-ear headphones with Bose's excellent active noise cancelling and up to 24 hours of battery life. Light and comfortable for long flights, commutes or working from home, with Aware mode when you need to hear what's around you.")
+            appendLine("- Bluetooth 5.1, USB-C charging (15 min charge = 3 hours)")
+            appendLine("- Includes carry case, USB-C cable and audio cable")
+            appendLine("- Fully working, light wear on the headband")
             appendLine("IDENTIFIED: yes")
+            appendLine("MSRP: 329")
             appendLine()
             appendLine("Now write the listing for the item in the photo(s), in exactly that format:")
-            appendLine("TITLE: under 70 characters; brand and model first only if known, then what it is and one key detail")
-            appendLine("DESCRIPTION: one or two plain sentences, then 2 to 5 lines starting with \"- \" (colour, material, size, what's included, visible wear)")
+            appendLine("TITLE: under 70 characters; brand and model first if known, then what it is and one key detail")
+            appendLine("DESCRIPTION: two or three sentences selling the product (what it is, what it's good for, standout features), then 2 to 5 lines starting with \"- \" (key specs, what's included, condition and any visible wear)")
             appendLine("IDENTIFIED: yes if you know the exact brand and model or title, otherwise no")
+            appendLine("MSRP: the product's original retail price when new as a plain number" + (if (currency.isNotBlank()) " in $currency" else "") + ", only if you know this exact product; otherwise unknown")
             appendLine()
-            appendLine("Rules: English only. No emojis, hashtags, prices, pickup or payment details. Never invent a brand, model, size or spec.")
+            appendLine("Rules: English only. No emojis or hashtags. No prices, pickup or payment details in the title or description. Never invent a brand, model, size or spec.")
             if (style.isNotBlank()) {
                 appendLine("Remember the seller's WRITING STYLE: ${style.trim().take(800)}")
             }
@@ -227,13 +230,17 @@ class Describer(private val context: Context) : Closeable {
             appendLine("DESCRIPTION: <rewritten description; keep short \"- \" lines for the details>")
         }
 
-        data class Listing(val title: String, val description: String, val identified: Boolean)
+        data class Listing(val title: String, val description: String, val identified: Boolean, val msrp: Double? = null)
 
         /** Splits the model's answer into title, description and whether it knew the product. */
         fun parse(raw: String): Listing {
             val idLine = Regex("""(?im)^\s*IDENTIFIED:\s*(\w+).*$""")
+            val msrpLine = Regex("""(?im)^\s*MSRP:\s*(.*)$""")
             val identified = idLine.find(raw)?.groupValues?.get(1)?.lowercase()?.startsWith("y") ?: true
-            val text = raw.replace("**", "").replace(idLine, "").trim()
+            val msrp = msrpLine.find(raw)?.groupValues?.get(1)
+                ?.let { Regex("""[0-9][0-9,]*(\.[0-9]+)?""").find(it)?.value }
+                ?.replace(",", "")?.toDoubleOrNull()?.takeIf { it > 0 && it < 1_000_000 }
+            val text = raw.replace("**", "").replace(idLine, "").replace(msrpLine, "").trim()
             val title = Regex("""TITLE:\s*(.+)""", RegexOption.IGNORE_CASE)
                 .find(text)?.groupValues?.get(1)?.trim().orEmpty()
             val dIdx = text.indexOf("DESCRIPTION:", ignoreCase = true)
@@ -242,7 +249,7 @@ class Describer(private val context: Context) : Closeable {
             } else {
                 text.lines().filterNot { it.trim().startsWith("TITLE:", ignoreCase = true) }.joinToString("\n").trim()
             }
-            return Listing(title.take(100), description, identified)
+            return Listing(title.take(100), description, identified, msrp)
         }
 
         /**

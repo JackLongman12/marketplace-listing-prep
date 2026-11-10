@@ -769,7 +769,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                                     "(e.g. \"bose qc 45\" = Bose QuietComfort 45). Work out the exact product, search the web for it " +
                                     "and list its key facts for a second-hand listing: $what\n" +
                                     "Give at most 6 short lines, starting with the official full product name, then brand and model, release year, main specs " +
-                                    "(size, capacity, power, material…), and what normally comes in the box. " +
+                                    "(size, capacity, power, material…), what normally comes in the box, and its original " +
+                                    "retail price (MSRP) where the seller lives. " +
                                     "No prices, no opinions. If you can't find this exact product, answer only: UNKNOWN"
                             )),
                             search = true,
@@ -868,7 +869,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
             // One attempt with whichever engine is in use; Google falls back to the phone if it can't answer.
             suspend fun attempt(): Describer.Companion.Listing? {
-                val prompt = Describer.prompt(known, analysis.ocr, style, place)
+                val prompt = Describer.prompt(known, analysis.ocr, style, place, Regions.current(settings).currency)
                 if (writer != null && cloudFailed == null) {
                     try {
                         return cloudListing(writer, item, prompt)
@@ -893,7 +894,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 // Small on-phone models often ignore the tone; a short text-only pass applies it.
                 progress("Applying your writing style…", _state.value.progress)
                 return writeListing(p, emptyList(), Describer.rewritePrompt(local.title, local.description, style))
-                    ?.copy(identified = local.identified) ?: local
+                    ?.copy(identified = local.identified, msrp = local.msrp) ?: local
             }
 
             var result = attempt()
@@ -921,6 +922,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 description = withDefaults(listing.description, it.condition, _state.value.settings),
                 status = if (it.isActive) Status.READY else it.status,
                 unsure = !listing.identified && it.identity.isBlank(),
+                // Known product: start the price at its original retail price (MSRP); change it any time.
+                price = if (it.price.isBlank() && listing.identified) listing.msrp?.let(PriceLookup::round).orEmpty() else it.price,
             )
         }
         _state.update { it.copy(generatingId = null) }

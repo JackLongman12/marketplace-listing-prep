@@ -695,6 +695,9 @@ private fun ItemScreen(item: Item, state: UiState, vm: AppViewModel, onBack: () 
                 value = item.price,
                 onValueChange = { v -> vm.updateItem(item.id) { it.copy(price = v.filter { c -> c.isDigit() || c == '.' }.take(10)) } },
                 label = { Text("Price (${region.currency.ifBlank { "local currency" }})") },
+                supportingText = if (item.price.isNotBlank() && item.description.isNotBlank()) ({
+                    Text("Starts at the AI's original retail price (MSRP) when it knows the product; set your own.")
+                }) else null,
                 prefix = { Text(region.symbol) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
