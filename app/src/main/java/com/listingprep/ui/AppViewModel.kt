@@ -856,8 +856,24 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Loads the model in the background (e.g. while you're still taking photos) so writing starts at once. */
+    /**
+     * The camera and the 4.4 GB model together can use up the phone's memory, and Android then
+     * closes the app without warning. So opening the camera frees the model when it's idle
+     * (it reloads by itself when the next description is written).
+     */
+    fun cameraOpened() {
+        if (_state.value.generatingId != null || describeLock.isLocked) return
+        CoroutineScope(Background + safe).launch {
+            if (describeLock.tryLock()) {
+                try { describer.close() } finally { describeLock.unlock() }
+            }
+        }
+    }
+
     fun warmUp() {
         val path = _state.value.modelPath ?: return
+        // Not needed when Gemini Nano or a cloud AI writes; loading it then only costs memory.
+        if (_state.value.nanoReady || cloudWriter() != null) return
         if (describer.isLoaded(path)) return
         viewModelScope.launch(Background + safe) {
             runCatching { describeLock.withLock { describer.ensureLoaded(path) } }

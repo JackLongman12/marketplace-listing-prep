@@ -130,7 +130,7 @@ fun App(
 
     Box(Modifier.fillMaxSize()) {
     when (val current = screen) {
-        null -> ItemListScreen(state, vm, onOpen = { screen = it }, onSettings = { screen = SETTINGS }, onCamera = { vm.warmUp(); screen = CAMERA })
+        null -> ItemListScreen(state, vm, onOpen = { screen = it }, onSettings = { screen = SETTINGS }, onCamera = { vm.cameraOpened(); screen = CAMERA })
         CAMERA -> CameraScreen(onFinish = { groups ->
             val ids = vm.addCameraItems(groups)
             if (state.settings.autoWrite &&
