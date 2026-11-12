@@ -61,6 +61,6 @@ AI models: [Gemma 3n](https://ai.google.dev/gemma) by Google, provided under the
 
 ## License
 
-Snaplist is free software under the [GNU General Public License v3.0](LICENSE): you may use, study, share and change it, and anything you distribute based on it must stay under the same license with its source available. Third-party parts keep their own licenses (see Credits).
+Snaplist is open source under the [MIT License](LICENSE): you may use, copy, change and share it, including in your own projects, as long as you keep the copyright and license notice. Third-party parts keep their own licenses (see Credits). Builds up to 58 were released under GPL-3.0.
 
 Snaplist is an independent project, not affiliated with, endorsed or sponsored by Meta Platforms, Inc. Facebook and Marketplace are trademarks of Meta Platforms, Inc.
