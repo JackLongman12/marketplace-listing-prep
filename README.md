@@ -4,8 +4,6 @@
 
 ![Snaplist: shoot it, sort it, describe it, post it](assets/social-preview.png)
 
-![Snaplist: shooting an item with the built-in camera, the item with its written description and price, and the finished Marketplace listing](assets/preview.png)
-
 ## What it does
 
 - **Built-in camera.** Shoot every angle of one item, tap *Next item*, repeat. Each group becomes an item, with no gallery picking. Photos stay inside the app.
